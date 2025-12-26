@@ -8,17 +8,22 @@ class VideoThread(QThread):
         super().__init__()
         self.source = source
         self.running = True
+        self.cap = None
 
     def run(self):
-        cap = cv2.VideoCapture(self.source)
+        self.cap = cv2.VideoCapture(self.source)
 
         while self.running:
-            ret, frame = cap.read()
+            ret, frame = self.cap.read()
             if not ret:
                 break
             self.frame_signal.emit(frame)
 
-        cap.release()
+        self.cleanup()
 
     def stop(self):
         self.running = False
+
+    def cleanup(self):
+        if self.cap and self.cap.isOpened():
+            self.cap.release()
