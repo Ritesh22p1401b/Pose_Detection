@@ -1,37 +1,26 @@
-import cv2
 import numpy as np
 
 class GaitEncoder:
-    def __init__(self):
-        self.prev_gray = None
-
-    def reset(self):
-        self.prev_gray = None
-
-    def encode_frame(self, frame):
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        gray = cv2.resize(gray, (128, 128))
-
-        if self.prev_gray is None:
-            self.prev_gray = gray
+    def encode(self, skeleton_sequence):
+        """
+        skeleton_sequence: (T, D)
+        returns: 128-D embedding
+        """
+        if len(skeleton_sequence) == 0:
             return None
 
-        diff = cv2.absdiff(gray, self.prev_gray)
-        self.prev_gray = gray
+        # Normalize
+        skeleton_sequence -= skeleton_sequence.mean(axis=0)
 
-        feature = np.mean(diff)
-        return feature
+        # Simple temporal aggregation (CPU-friendly)
+        embedding = np.mean(skeleton_sequence, axis=0)
 
-    def encode_video(self, frames):
-        features = []
-        self.reset()
+        # Pad / truncate to 128D
+        if embedding.shape[0] < 128:
+            embedding = np.pad(
+                embedding, (0, 128 - embedding.shape[0])
+            )
+        else:
+            embedding = embedding[:128]
 
-        for f in frames:
-            feat = self.encode_frame(f)
-            if feat is not None:
-                features.append(feat)
-
-        if not features:
-            return None
-
-        return np.array(features).mean()
+        return embedding

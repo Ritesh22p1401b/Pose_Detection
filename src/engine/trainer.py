@@ -1,31 +1,44 @@
+import cv2
 import numpy as np
 from pathlib import Path
+
+from src.pose.pose_extractor import PoseExtractor
 from src.models.gait_encoder import GaitEncoder
-from src.config import PROFILE_DIR
-import cv2
 
 class Trainer:
     def __init__(self):
+        self.pose = PoseExtractor("models/pose.onnx")
         self.encoder = GaitEncoder()
 
-    def build_profile(self, video_path, person_id="person_01"):
-        cap = cv2.VideoCapture(video_path)
-        frames = []
+    def build_profile(self, video_paths, person_id):
+        embeddings = []
 
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            frames.append(frame)
+        for video_path in video_paths:
+            cap = cv2.VideoCapture(video_path)
+            skeletons = []
 
-        cap.release()
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
 
-        embedding = self.encoder.encode_video(frames)
-        if embedding is None:
-            raise RuntimeError("Failed to extract gait features")
+                sk = self.pose.extract(frame)
+                if sk is not None:
+                    skeletons.append(sk)
 
-        Path(PROFILE_DIR).mkdir(parents=True, exist_ok=True)
-        profile_path = Path(PROFILE_DIR) / f"{person_id}.npy"
-        np.save(profile_path, embedding)
+            cap.release()
 
-        return profile_path
+            emb = self.encoder.encode(np.array(skeletons))
+            if emb is not None:
+                embeddings.append(emb)
+
+        if not embeddings:
+            raise RuntimeError("No gait data extracted")
+
+        profile = np.mean(embeddings, axis=0)
+
+        Path("data/profiles").mkdir(parents=True, exist_ok=True)
+        path = f"data/profiles/{person_id}.npy"
+        np.save(path, profile)
+
+        return path
