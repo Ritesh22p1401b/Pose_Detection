@@ -7,14 +7,14 @@ from src.models.gait_encoder import GaitEncoder
 
 class Trainer:
     def __init__(self):
-        self.pose = PoseExtractor("models/pose.onnx")
+        self.pose = PoseExtractor()
         self.encoder = GaitEncoder()
 
     def build_profile(self, video_paths, person_id):
         embeddings = []
 
-        for video_path in video_paths:
-            cap = cv2.VideoCapture(video_path)
+        for path in video_paths:
+            cap = cv2.VideoCapture(path)
             skeletons = []
 
             while True:
@@ -38,7 +38,7 @@ class Trainer:
         profile = np.mean(embeddings, axis=0)
 
         Path("data/profiles").mkdir(parents=True, exist_ok=True)
-        path = f"data/profiles/{person_id}.npy"
-        np.save(path, profile)
+        profile_path = f"data/profiles/{person_id}.npy"
+        np.save(profile_path, profile)
 
-        return path
+        return profile_path

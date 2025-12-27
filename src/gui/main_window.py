@@ -79,20 +79,22 @@ class MainWindow(QMainWindow):
     # TRAIN PERSON (REFERENCE SLOT)
     # ---------------------------------------
     def train(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Select Training Video"
+        files, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select 5–6 Training Videos"
         )
-        if not path:
+        if len(files) < 3:
+            self.video_label.setText("Select at least 3 videos")
             return
 
-        person_id = "person_01"  # can be extended later
+        person_id = "person_01"
 
-        profile_path = self.trainer.build_profile(path, person_id)
+        profile_path = self.trainer.build_profile(files, person_id)
         self.verifier = Verifier(profile_path)
         self.active_person_id = person_id
 
         self.video_label.setText(
-            f"Training completed\nActive person: {person_id}"
+            f"Training completed with {len(files)} videos"
         )
 
     # ---------------------------------------

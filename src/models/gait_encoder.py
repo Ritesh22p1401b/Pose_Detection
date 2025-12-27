@@ -1,26 +1,32 @@
 import numpy as np
+from scipy.signal import savgol_filter
 
 class GaitEncoder:
-    def encode(self, skeleton_sequence):
+    def encode(self, skeletons):
         """
-        skeleton_sequence: (T, D)
+        skeletons: (T, D) where D = joints*2
         returns: 128-D embedding
         """
-        if len(skeleton_sequence) == 0:
+        if skeletons is None or len(skeletons) < 10:
             return None
 
-        # Normalize
-        skeleton_sequence -= skeleton_sequence.mean(axis=0)
+        # Smooth temporal noise
+        skeletons = savgol_filter(skeletons, 7, 2, axis=0)
 
-        # Simple temporal aggregation (CPU-friendly)
-        embedding = np.mean(skeleton_sequence, axis=0)
+        # Normalize (hip centered)
+        hip_center = skeletons[:, 0:2].mean(axis=0)
+        skeletons -= np.tile(hip_center, skeletons.shape[1] // 2)
 
-        # Pad / truncate to 128D
-        if embedding.shape[0] < 128:
-            embedding = np.pad(
-                embedding, (0, 128 - embedding.shape[0])
-            )
+        # Temporal aggregation
+        emb = np.concatenate([
+            skeletons.mean(axis=0),
+            skeletons.std(axis=0)
+        ])
+
+        # Pad / truncate to 128
+        if emb.shape[0] < 128:
+            emb = np.pad(emb, (0, 128 - emb.shape[0]))
         else:
-            embedding = embedding[:128]
+            emb = emb[:128]
 
-        return embedding
+        return emb
