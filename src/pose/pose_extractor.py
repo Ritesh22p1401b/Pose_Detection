@@ -1,29 +1,26 @@
 import cv2
 import numpy as np
-
-# Stable MediaPipe import for Python 3.11 on Windows
-from mediapipe.python.solutions.pose import Pose, PoseLandmark
+import mediapipe as mp
 
 
 class PoseExtractor:
     def __init__(self):
-        self.pose = Pose(
+        self.pose = mp.solutions.pose.Pose(
             static_image_mode=False,
             model_complexity=1,
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5
         )
 
-        # Key joints for gait recognition
         self.joints = [
-            PoseLandmark.LEFT_HIP,
-            PoseLandmark.RIGHT_HIP,
-            PoseLandmark.LEFT_KNEE,
-            PoseLandmark.RIGHT_KNEE,
-            PoseLandmark.LEFT_ANKLE,
-            PoseLandmark.RIGHT_ANKLE,
-            PoseLandmark.LEFT_SHOULDER,
-            PoseLandmark.RIGHT_SHOULDER
+            mp.solutions.pose.PoseLandmark.LEFT_HIP,
+            mp.solutions.pose.PoseLandmark.RIGHT_HIP,
+            mp.solutions.pose.PoseLandmark.LEFT_KNEE,
+            mp.solutions.pose.PoseLandmark.RIGHT_KNEE,
+            mp.solutions.pose.PoseLandmark.LEFT_ANKLE,
+            mp.solutions.pose.PoseLandmark.RIGHT_ANKLE,
+            mp.solutions.pose.PoseLandmark.LEFT_SHOULDER,
+            mp.solutions.pose.PoseLandmark.RIGHT_SHOULDER
         ]
 
     def extract(self, frame):
@@ -34,8 +31,8 @@ class PoseExtractor:
             return None
 
         keypoints = []
-        for joint in self.joints:
-            lm = result.pose_landmarks.landmark[joint]
+        for j in self.joints:
+            lm = result.pose_landmarks.landmark[j]
             keypoints.extend([lm.x, lm.y])
 
         return np.array(keypoints, dtype=np.float32)
