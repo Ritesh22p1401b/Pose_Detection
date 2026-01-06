@@ -36,4 +36,6 @@ class GaitModel(nn.Module):
         id_logits = self.id_head(embedding)
         gender_logits = self.gender_head(embedding)
 
+
+
         return embedding, id_logits, gender_logits
