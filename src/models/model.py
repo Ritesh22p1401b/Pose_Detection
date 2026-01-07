@@ -39,3 +39,4 @@ class GaitModel(nn.Module):
 
 
         return embedding, id_logits, gender_logits
+
