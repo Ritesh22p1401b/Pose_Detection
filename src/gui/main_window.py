@@ -68,6 +68,12 @@ class MainWindow(QMainWindow):
         self.thread = None
         self.cap = None
 
+
+        self.skeleton_buffer = []
+        self.GENDER_WINDOW = 30  # frames
+
+
+
         self.last_found = False
         self.last_score = 0.0
         self.last_gender = "Unknown"
@@ -240,30 +246,44 @@ class MainWindow(QMainWindow):
 
         self.video_label.setText("Video Stopped")
 
-        QMessageBox.information(
-            self,
-            "Stopped",
-            "Video processing stopped successfully."
-        )
+        # QMessageBox.information(
+        #     self,
+        #     "Stopped",
+        #     "Video processing stopped successfully."
+        # )
 
     # ---------------------------------------
     # FRAME PROCESSING
     # ---------------------------------------
     def process_frame(self, frame):
-        skeleton = self.extractor.extract_from_frame(frame)
+        joints = self.extractor.extract_from_frame(frame)
 
-        if skeleton is not None and len(skeleton) > 0:
-            ref = np.load(REFERENCE_PATH)
+        if joints is not None:
+            # Build temporal buffer
+            self.skeleton_buffer.append(joints)
 
-            emb = self.matcher.embed(skeleton[np.newaxis, ...])
-            found, score = self.matcher.match(emb, ref)
+            # Keep buffer size bounded
+            if len(self.skeleton_buffer) > self.GENDER_WINDOW:
+                self.skeleton_buffer.pop(0)
 
-            self.last_found = found
-            self.last_score = score
+            # ---------------- PERSON IDENTIFICATION ----------------
+            if len(self.skeleton_buffer) >= 10:
+                seq = np.array(self.skeleton_buffer, dtype=np.float32)
 
-            features = extract_gender_features(skeleton[np.newaxis, ...])
-            g = self.gender_model.predict(features)[0]
-            self.last_gender = "Male" if g == 0 else "Female"
+                ref = np.load(REFERENCE_PATH)
+                emb = self.matcher.embed(seq)
+                found, score = self.matcher.match(emb, ref)
+
+                self.last_found = found
+                self.last_score = score
+
+            # ---------------- GENDER CLASSIFICATION ----------------
+            if len(self.skeleton_buffer) >= self.GENDER_WINDOW:
+                seq = np.array(self.skeleton_buffer, dtype=np.float32)
+                features = extract_gender_features(seq)
+
+                g = self.gender_model.predict(features)[0]
+                self.last_gender = "Male" if g == 0 else "Female"
 
         frame = self.draw_box_and_label(frame)
         self.display_frame(frame)
