@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 from PIL import Image
 import joblib
+import os
 
 from src.inference.skeleton_extractor import SkeletonExtractor
 from src.inference.gait_matcher import GaitMatcher
@@ -19,10 +20,10 @@ from src.gui.video_thread import VideoThread
 # ---------------- CONFIG ----------------
 DISPLAY_WIDTH = 640
 DISPLAY_HEIGHT = 480
-REFERENCE_PATH = "profiles/reference_embedding.npy"
 
 GAIT_MODEL_PATH = "checkpoints/gait_model.pth"
 GENDER_MODEL_PATH = "checkpoints/gender_model.pkl"
+REFERENCE_PATH = "profiles/reference_embedding.npy"
 # ---------------------------------------
 
 
@@ -62,12 +63,11 @@ class MainWindow(QMainWindow):
 
         self.matcher = None
         self.reference_embeddings = []
-
         self.reference_ready = False
+
         self.thread = None
         self.cap = None
 
-        # last inference
         self.last_found = False
         self.last_score = 0.0
         self.last_gender = "Unknown"
@@ -80,7 +80,7 @@ class MainWindow(QMainWindow):
         self.stop_btn.clicked.connect(self.stop_video)
 
     # ---------------------------------------
-    # ADD TRAINING VIDEOS (REFERENCE ONLY)
+    # ADD TRAINING VIDEOS
     # ---------------------------------------
     def add_training_videos(self):
         files, _ = QFileDialog.getOpenFileNames(
@@ -90,10 +90,18 @@ class MainWindow(QMainWindow):
             "Video Files (*.mp4 *.avi *.mov)"
         )
 
-        if len(files) < 3:
-            QMessageBox.warning(self, "Error", "Select at least 3 videos")
+        if not files:
+            QMessageBox.warning(self, "Cancelled", "No videos selected.")
             return
 
+        if len(files) < 3:
+            QMessageBox.warning(
+                self, "Error",
+                "Please select at least 3 training videos."
+            )
+            return
+
+        added = 0
         for path in files:
             skeleton = self.extractor.extract_from_video(path)
             if len(skeleton) == 0:
@@ -107,56 +115,103 @@ class MainWindow(QMainWindow):
 
             emb = self.matcher.embed(skeleton)
             self.reference_embeddings.append(emb)
+            added += 1
 
-        QMessageBox.information(
-            self,
-            "Training Videos Added",
-            f"Added {len(self.reference_embeddings)} reference samples"
-        )
+        if added == 0:
+            QMessageBox.critical(
+                self,
+                "Failed",
+                "No valid person detected in selected videos."
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "Success",
+                f"{added} training video(s) uploaded successfully."
+            )
 
     # ---------------------------------------
     # BUILD REFERENCE PROFILE
     # ---------------------------------------
     def build_reference(self):
         if len(self.reference_embeddings) < 3:
-            QMessageBox.warning(self, "Error", "Add at least 3 videos first")
+            QMessageBox.warning(
+                self,
+                "Error",
+                "At least 3 valid training videos are required."
+            )
             return
+
+        os.makedirs("profiles", exist_ok=True)
 
         reference = self.matcher.build_reference(self.reference_embeddings)
         np.save(REFERENCE_PATH, reference)
 
         self.reference_ready = True
-        QMessageBox.information(self, "Done", "Reference profile built successfully")
+
+        QMessageBox.information(
+            self,
+            "Reference Created",
+            "Reference profile created successfully.\n"
+            "You can now start live camera or verify a video."
+        )
 
     # ---------------------------------------
     # LIVE CAMERA
     # ---------------------------------------
     def start_live(self):
         if not self.reference_ready:
-            QMessageBox.warning(self, "Error", "Build reference profile first")
+            QMessageBox.warning(
+                self,
+                "Error",
+                "Please build the reference profile first."
+            )
             return
 
         self.stop_video()
+
         self.thread = VideoThread(0)
         self.thread.frame_signal.connect(self.process_frame)
         self.thread.start()
+
+        QMessageBox.information(
+            self,
+            "Live Camera",
+            "Live camera started successfully."
+        )
 
     # ---------------------------------------
     # RECORDED VIDEO
     # ---------------------------------------
     def verify_video(self):
         if not self.reference_ready:
-            QMessageBox.warning(self, "Error", "Build reference profile first")
+            QMessageBox.warning(
+                self,
+                "Error",
+                "Please build the reference profile first."
+            )
             return
 
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select Video", "", "Video Files (*.mp4 *.avi *.mov)"
+            self,
+            "Select Video",
+            "",
+            "Video Files (*.mp4 *.avi *.mov)"
         )
+
         if not path:
+            QMessageBox.warning(self, "Cancelled", "No video selected.")
             return
 
         self.stop_video()
         self.cap = cv2.VideoCapture(path)
+
+        QMessageBox.information(
+            self,
+            "Video Loaded",
+            "Recorded video loaded successfully.\n"
+            "Starting verification."
+        )
 
         while True:
             ret, frame = self.cap.read()
@@ -184,6 +239,12 @@ class MainWindow(QMainWindow):
 
         self.video_label.setText("Video Stopped")
 
+        QMessageBox.information(
+            self,
+            "Stopped",
+            "Video processing stopped successfully."
+        )
+
     # ---------------------------------------
     # FRAME PROCESSING
     # ---------------------------------------
@@ -210,7 +271,6 @@ class MainWindow(QMainWindow):
     # ---------------------------------------
     def draw_box_and_label(self, frame):
         h, w, _ = frame.shape
-
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         res = self.extractor.pose.process(rgb)
 
