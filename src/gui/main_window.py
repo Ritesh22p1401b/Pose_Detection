@@ -110,8 +110,9 @@ class MainWindow(QMainWindow):
             if self.matcher is None:
                 self.matcher = GaitMatcher(
                     GAIT_MODEL_PATH,
-                    num_joints=skeleton.shape[1]
+                    num_joints=12
                 )
+
 
             emb = self.matcher.embed(skeleton)
             self.reference_embeddings.append(emb)
@@ -249,22 +250,24 @@ class MainWindow(QMainWindow):
     # FRAME PROCESSING
     # ---------------------------------------
     def process_frame(self, frame):
-        skeleton = self.extractor.extract_from_video(frame)
+        skeleton = self.extractor.extract_from_frame(frame)
 
-        if len(skeleton) > 0:
+        if skeleton is not None and len(skeleton) > 0:
             ref = np.load(REFERENCE_PATH)
-            emb = self.matcher.embed(skeleton)
+
+            emb = self.matcher.embed(skeleton[np.newaxis, ...])
             found, score = self.matcher.match(emb, ref)
 
             self.last_found = found
             self.last_score = score
 
-            features = extract_gender_features(skeleton)
+            features = extract_gender_features(skeleton[np.newaxis, ...])
             g = self.gender_model.predict(features)[0]
             self.last_gender = "Male" if g == 0 else "Female"
 
         frame = self.draw_box_and_label(frame)
         self.display_frame(frame)
+
 
     # ---------------------------------------
     # DRAW GREEN / RED BOX
