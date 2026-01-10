@@ -8,14 +8,22 @@ from PySide6.QtCore import Qt
 import cv2
 import numpy as np
 from PIL import Image
+import joblib
 
-from src.engine.trainer import Trainer
-from src.engine.verifier import Verifier
+from src.inference.skeleton_extractor import SkeletonExtractor
+from src.inference.gait_matcher import GaitMatcher
+from src.inference.gender_features import extract_gender_features
 from src.gui.video_thread import VideoThread
 
+
+# ---------------- CONFIG ----------------
 DISPLAY_WIDTH = 640
 DISPLAY_HEIGHT = 480
-GAIT_WINDOW = 30   # frames per verification window
+REFERENCE_PATH = "profiles/reference_embedding.npy"
+
+GAIT_MODEL_PATH = "checkpoints/gait_model.pth"
+GENDER_MODEL_PATH = "checkpoints/gender_model.pkl"
+# ---------------------------------------
 
 
 class MainWindow(QMainWindow):
@@ -30,7 +38,8 @@ class MainWindow(QMainWindow):
         self.video_label.setAlignment(Qt.AlignCenter)
         self.video_label.setFixedSize(DISPLAY_WIDTH, DISPLAY_HEIGHT)
 
-        self.train_btn = QPushButton("Train (5–6 Videos)")
+        self.train_btn = QPushButton("Add Training Videos (3–6)")
+        self.build_btn = QPushButton("Build Reference Profile")
         self.live_btn = QPushButton("Start Live Camera")
         self.video_btn = QPushButton("Verify Recorded Video")
         self.stop_btn = QPushButton("Stop")
@@ -38,6 +47,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout()
         layout.addWidget(self.video_label)
         layout.addWidget(self.train_btn)
+        layout.addWidget(self.build_btn)
         layout.addWidget(self.live_btn)
         layout.addWidget(self.video_btn)
         layout.addWidget(self.stop_btn)
@@ -47,28 +57,35 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(container)
 
         # ------------- Core State -------------
-        self.trainer = Trainer()
-        self.verifier = None
+        self.extractor = SkeletonExtractor()
+        self.gender_model = joblib.load(GENDER_MODEL_PATH)
+
+        self.matcher = None
+        self.reference_embeddings = []
+
+        self.reference_ready = False
         self.thread = None
         self.cap = None
 
-        self.frames = []
-        self.last_result = False
+        # last inference
+        self.last_found = False
         self.last_score = 0.0
+        self.last_gender = "Unknown"
 
         # ------------- Signals ----------------
-        self.train_btn.clicked.connect(self.train)
+        self.train_btn.clicked.connect(self.add_training_videos)
+        self.build_btn.clicked.connect(self.build_reference)
         self.live_btn.clicked.connect(self.start_live)
         self.video_btn.clicked.connect(self.verify_video)
         self.stop_btn.clicked.connect(self.stop_video)
 
     # ---------------------------------------
-    # TRAIN PERSON
+    # ADD TRAINING VIDEOS (REFERENCE ONLY)
     # ---------------------------------------
-    def train(self):
+    def add_training_videos(self):
         files, _ = QFileDialog.getOpenFileNames(
             self,
-            "Select 5–6 Training Videos",
+            "Select 3–6 Training Videos",
             "",
             "Video Files (*.mp4 *.avi *.mov)"
         )
@@ -77,33 +94,59 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Error", "Select at least 3 videos")
             return
 
-        profile_path = self.trainer.build_profile(files, "person_01")
-        self.verifier = Verifier(profile_path)
+        for path in files:
+            skeleton = self.extractor.extract_from_video(path)
+            if len(skeleton) == 0:
+                continue
+
+            if self.matcher is None:
+                self.matcher = GaitMatcher(
+                    GAIT_MODEL_PATH,
+                    num_joints=skeleton.shape[1]
+                )
+
+            emb = self.matcher.embed(skeleton)
+            self.reference_embeddings.append(emb)
 
         QMessageBox.information(
-            self, "Training Done",
-            f"Training completed with {len(files)} videos"
+            self,
+            "Training Videos Added",
+            f"Added {len(self.reference_embeddings)} reference samples"
         )
+
+    # ---------------------------------------
+    # BUILD REFERENCE PROFILE
+    # ---------------------------------------
+    def build_reference(self):
+        if len(self.reference_embeddings) < 3:
+            QMessageBox.warning(self, "Error", "Add at least 3 videos first")
+            return
+
+        reference = self.matcher.build_reference(self.reference_embeddings)
+        np.save(REFERENCE_PATH, reference)
+
+        self.reference_ready = True
+        QMessageBox.information(self, "Done", "Reference profile built successfully")
 
     # ---------------------------------------
     # LIVE CAMERA
     # ---------------------------------------
     def start_live(self):
-        if not self.verifier:
-            QMessageBox.warning(self, "Error", "Train a person first")
+        if not self.reference_ready:
+            QMessageBox.warning(self, "Error", "Build reference profile first")
             return
 
         self.stop_video()
         self.thread = VideoThread(0)
-        self.thread.frame_signal.connect(self.update_frame)
+        self.thread.frame_signal.connect(self.process_frame)
         self.thread.start()
 
     # ---------------------------------------
     # RECORDED VIDEO
     # ---------------------------------------
     def verify_video(self):
-        if not self.verifier:
-            QMessageBox.warning(self, "Error", "Train a person first")
+        if not self.reference_ready:
+            QMessageBox.warning(self, "Error", "Build reference profile first")
             return
 
         path, _ = QFileDialog.getOpenFileName(
@@ -114,7 +157,6 @@ class MainWindow(QMainWindow):
 
         self.stop_video()
         self.cap = cv2.VideoCapture(path)
-        self.frames.clear()
 
         while True:
             ret, frame = self.cap.read()
@@ -140,55 +182,56 @@ class MainWindow(QMainWindow):
             self.cap.release()
             self.cap = None
 
-        self.frames.clear()
         self.video_label.setText("Video Stopped")
 
     # ---------------------------------------
-    # COMMON FRAME PIPELINE
+    # FRAME PROCESSING
     # ---------------------------------------
-    def update_frame(self, frame):
-        self.process_frame(frame)
-
     def process_frame(self, frame):
-        self.frames.append(frame)
+        skeleton = self.extractor.extract_from_video(frame)
 
-        if len(self.frames) >= GAIT_WINDOW and self.verifier:
-            self.last_score, self.last_result = self.verifier.verify_frames(
-                self.frames
-            )
-            self.frames.clear()
+        if len(skeleton) > 0:
+            ref = np.load(REFERENCE_PATH)
+            emb = self.matcher.embed(skeleton)
+            found, score = self.matcher.match(emb, ref)
 
-        # Draw bounding box + label
+            self.last_found = found
+            self.last_score = score
+
+            features = extract_gender_features(skeleton)
+            g = self.gender_model.predict(features)[0]
+            self.last_gender = "Male" if g == 0 else "Female"
+
         frame = self.draw_box_and_label(frame)
         self.display_frame(frame)
 
     # ---------------------------------------
-    # DRAW GREEN / RED BOX USING POSE
+    # DRAW GREEN / RED BOX
     # ---------------------------------------
     def draw_box_and_label(self, frame):
         h, w, _ = frame.shape
 
-        # Use pose extractor directly
-        pose = self.verifier.pose.pose
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        result = pose.process(rgb)
+        res = self.extractor.pose.process(rgb)
 
-        if result.pose_landmarks:
-            xs = [lm.x for lm in result.pose_landmarks.landmark]
-            ys = [lm.y for lm in result.pose_landmarks.landmark]
+        if res.pose_landmarks:
+            xs = [lm.x for lm in res.pose_landmarks.landmark]
+            ys = [lm.y for lm in res.pose_landmarks.landmark]
 
-            x1 = int(min(xs) * w)
-            y1 = int(min(ys) * h)
-            x2 = int(max(xs) * w)
-            y2 = int(max(ys) * h)
+            x1, y1 = int(min(xs) * w), int(min(ys) * h)
+            x2, y2 = int(max(xs) * w), int(max(ys) * h)
 
-            color = (0, 255, 0) if self.last_result else (0, 0, 255)
-            label = "FOUND" if self.last_result else "NOT FOUND"
+            color = (0, 255, 0) if self.last_found else (0, 0, 255)
+            label = (
+                f"FOUND | {self.last_gender}"
+                if self.last_found
+                else "NOT FOUND"
+            )
 
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
             cv2.putText(
                 frame,
-                f"{label} ({self.last_score:.2f})",
+                label,
                 (x1, y1 - 10),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.8,
@@ -199,7 +242,7 @@ class MainWindow(QMainWindow):
         return frame
 
     # ---------------------------------------
-    # DISPLAY
+    # DISPLAY FRAME
     # ---------------------------------------
     def display_frame(self, frame):
         frame = cv2.resize(frame, (DISPLAY_WIDTH, DISPLAY_HEIGHT))
