@@ -1,104 +1,72 @@
 import torch
 import numpy as np
 import torch.nn.functional as F
-
 from src.models.model import GaitModel
 
 
 class GaitMatcher:
-    """
-    Uses a trained gait model as a FEATURE EXTRACTOR
-    (biometric verification, not classification)
-    """
-
     def __init__(self, model_path: str, num_joints: int):
-        """
-        model_path : path to gait_model.pth
-        num_joints : MUST match training joint count (e.g. 12)
-        """
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        # ---------------- Load checkpoint ----------------
         checkpoint = torch.load(model_path, map_location=self.device)
 
-        # Handle both save formats:
-        # 1) torch.save(model.state_dict())
-        # 2) torch.save({"model_state": model.state_dict(), ...})
         if isinstance(checkpoint, dict) and "model_state" in checkpoint:
             state_dict = checkpoint["model_state"]
         else:
             state_dict = checkpoint
 
-        # ---------------- Build model ----------------
-        # num_people=1 because we DO NOT use classification head
         self.model = GaitModel(num_joints=num_joints, num_people=1).to(self.device)
 
-        # ---------------- Remove classification head ----------------
-        # We only want LSTM + embedding layers
+        # Remove classification head
         filtered_state = {
             k: v for k, v in state_dict.items()
             if not k.startswith("id_head")
         }
 
-        # strict=False allows missing id_head weights safely
         self.model.load_state_dict(filtered_state, strict=False)
         self.model.eval()
 
-    # --------------------------------------------------
-    # EMBEDDING EXTRACTION
-    # --------------------------------------------------
-    def embed(self, skeleton_sequence: np.ndarray) -> np.ndarray:
-        """
-        skeleton_sequence : (T, J, 2)
-        returns           : (embedding_dim,)
-        """
-        if skeleton_sequence.ndim != 3:
-            raise ValueError("Skeleton sequence must be (T, J, 2)")
+        # ---- NEW ----
+        self.ref_mean = None
+        self.ref_std = None
 
+    # ---------------- EMBEDDING ----------------
+    def embed(self, skeleton_seq: np.ndarray) -> np.ndarray:
         x = torch.tensor(
-            skeleton_sequence,
-            dtype=torch.float32,
-            device=self.device
-        ).unsqueeze(0)  # (1, T, J, 2)
+            skeleton_seq, dtype=torch.float32, device=self.device
+        ).unsqueeze(0)
 
         with torch.no_grad():
-            embedding, _, _ = self.model(x)
+            emb, _, _ = self.model(x)
 
-        return embedding.squeeze(0).cpu().numpy()
+        emb = emb.squeeze(0).cpu().numpy()
+        return emb / (np.linalg.norm(emb) + 1e-8)   # 🔥 NORMALIZATION
 
-    # --------------------------------------------------
-    # BUILD REFERENCE PROFILE
-    # --------------------------------------------------
+    # ---------------- REFERENCE BUILD ----------------
     def build_reference(self, embeddings: list[np.ndarray]) -> np.ndarray:
-        """
-        embeddings : list of embedding vectors
-        returns    : averaged reference embedding
-        """
-        if len(embeddings) == 0:
-            raise ValueError("No embeddings provided")
+        embeddings = [e / (np.linalg.norm(e) + 1e-8) for e in embeddings]
+        ref = np.mean(embeddings, axis=0)
 
-        return np.mean(np.stack(embeddings, axis=0), axis=0)
+        # ---- CALIBRATION (IMPORTANT) ----
+        scores = [
+            np.dot(e, ref) / (np.linalg.norm(ref) + 1e-8)
+            for e in embeddings
+        ]
 
-    # --------------------------------------------------
-    # MATCH AGAINST REFERENCE
-    # --------------------------------------------------
-    def match(
-        self,
-        embedding: np.ndarray,
-        reference: np.ndarray,
-        threshold: float = 0.75
-    ) -> tuple[bool, float]:
-        """
-        embedding : test embedding
-        reference : stored reference embedding
-        threshold : cosine similarity threshold
+        self.ref_mean = float(np.mean(scores))
+        self.ref_std = float(np.std(scores) + 1e-6)
 
-        returns   : (found, score)
-        """
-        emb = torch.tensor(embedding)
-        ref = torch.tensor(reference)
+        return ref
 
-        score = F.cosine_similarity(emb, ref, dim=0).item()
-        found = score >= threshold
+    # ---------------- MATCH ----------------
+    def match(self, emb: np.ndarray, ref: np.ndarray):
+        emb = emb / (np.linalg.norm(emb) + 1e-8)
+        ref = ref / (np.linalg.norm(ref) + 1e-8)
 
+        score = float(np.dot(emb, ref))
+
+        # 🔥 ADAPTIVE THRESHOLD (KEY FIX)
+        threshold = self.ref_mean - 2.0 * self.ref_std
+
+        found = score > threshold
         return found, score

@@ -15,6 +15,7 @@ from src.inference.skeleton_extractor import SkeletonExtractor
 from src.inference.gait_matcher import GaitMatcher
 from src.inference.gender_features import extract_gender_features
 from src.gui.video_thread import VideoThread
+from collections import deque
 
 
 # ---------------- CONFIG ----------------
@@ -72,6 +73,7 @@ class MainWindow(QMainWindow):
         self.skeleton_buffer = []
         self.GENDER_WINDOW = 30  # frames
 
+        self.match_votes = deque(maxlen=15)
 
 
         self.last_found = False
@@ -272,10 +274,18 @@ class MainWindow(QMainWindow):
 
                 ref = np.load(REFERENCE_PATH)
                 emb = self.matcher.embed(seq)
-                found, score = self.matcher.match(emb, ref)
 
-                self.last_found = found
+                found, score = self.matcher.match(emb, ref)
+                self.match_votes.append(found)
+
+                # ---- TEMPORAL CONSISTENCY ----
+                if len(self.match_votes) >= 10:
+                    self.last_found = sum(self.match_votes) >= 7
+                else:
+                    self.last_found = False
+
                 self.last_score = score
+
 
             # ---------------- GENDER CLASSIFICATION ----------------
             if len(self.skeleton_buffer) >= self.GENDER_WINDOW:
