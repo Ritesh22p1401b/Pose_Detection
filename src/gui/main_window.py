@@ -74,7 +74,7 @@ class MainWindow(QMainWindow):
         self.not_found_spikes = 0
 
         self.SPIKE_CONFIRM = 4      # REQUIRED FOUND spikes
-        self.SPIKE_RESET = 5       # RESET after NOT FOUND streak
+        self.SPIKE_RESET = 10      # RESET after NOT FOUND streak
 
         self.skeleton_buffer = []
         self.GENDER_WINDOW = 30  # frames
