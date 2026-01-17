@@ -1,6 +1,6 @@
 import cv2
 from insightface.app import FaceAnalysis
-from face_matcher import cosine_similarity
+from face.face_matcher import cosine_similarity
 import uuid
 
 

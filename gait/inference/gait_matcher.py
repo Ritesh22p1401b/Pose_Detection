@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import torch.nn.functional as F
-from src.models.model import GaitModel
+from gait.models.model import GaitModel
 
 
 class GaitMatcher:

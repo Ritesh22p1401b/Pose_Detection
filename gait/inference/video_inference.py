@@ -2,9 +2,9 @@ import torch
 import joblib
 import numpy as np
 
-from src.models.model import GaitModel
-from src.inference.skeleton_extractor import SkeletonExtractor
-from src.inference.gender_features import extract_gender_features
+from gait.models.model import GaitModel
+from gait.inference.skeleton_extractor import SkeletonExtractor
+from gait.inference.gender_features import extract_gender_features
 
 
 # -------- PATHS --------

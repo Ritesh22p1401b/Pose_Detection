@@ -1,6 +1,6 @@
 import numpy as np
-from src.pose.pose_extractor import PoseExtractor
-from src.models.gait_encoder import GaitEncoder
+from gait.pose.pose_extractor import PoseExtractor
+from gait.models.gait_encoder import GaitEncoder
 
 class Verifier:
     def __init__(self, profile_path):
