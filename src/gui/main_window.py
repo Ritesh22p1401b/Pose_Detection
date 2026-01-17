@@ -70,6 +70,12 @@ class MainWindow(QMainWindow):
         self.cap = None
 
 
+        self.found_spikes = 0
+        self.not_found_spikes = 0
+
+        self.SPIKE_CONFIRM = 4      # REQUIRED FOUND spikes
+        self.SPIKE_RESET = 5       # RESET after NOT FOUND streak
+
         self.skeleton_buffer = []
         self.GENDER_WINDOW = 30  # frames
 
@@ -276,12 +282,17 @@ class MainWindow(QMainWindow):
                 emb = self.matcher.embed(seq)
 
                 found, score = self.matcher.match(emb, ref)
-                self.match_votes.append(found)
-
-                # ---- TEMPORAL CONSISTENCY ----
-                if len(self.match_votes) >= 10:
-                    self.last_found = sum(self.match_votes) >= 7
+                if found:
+                    self.found_spikes += 1
+                    self.not_found_spikes = 0
                 else:
+                    self.not_found_spikes += 1
+                    self.found_spikes = 0
+
+                # ---- FINAL DECISION ----
+                if self.found_spikes >= self.SPIKE_CONFIRM:
+                    self.last_found = True
+                elif self.not_found_spikes >= self.SPIKE_RESET:
                     self.last_found = False
 
                 self.last_score = score
