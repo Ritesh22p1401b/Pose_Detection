@@ -1,12 +1,15 @@
 import cv2
+import numpy as np
+
 from PySide6.QtWidgets import (
     QMainWindow, QLabel, QPushButton, QFileDialog,
     QVBoxLayout, QWidget, QMessageBox, QApplication
 )
 from PySide6.QtGui import QPixmap, QImage
 from PySide6.QtCore import Qt
+
 from face.webcam import VideoFinder
-import numpy as np
+from face.face_encoder import FaceEncoder
 
 
 class FaceWindow(QMainWindow):
@@ -15,6 +18,7 @@ class FaceWindow(QMainWindow):
         self.setWindowTitle("Face Recognition")
         self.resize(900, 650)
 
+        # ---------------- UI ----------------
         self.video_label = QLabel("Face Feed")
         self.video_label.setAlignment(Qt.AlignCenter)
         self.video_label.setFixedSize(640, 480)
@@ -35,10 +39,15 @@ class FaceWindow(QMainWindow):
         container.setLayout(layout)
         self.setCentralWidget(container)
 
+        # ---------------- State ----------------
         self.cap = None
         self.face_finder = None
         self.reference_embeddings = []
 
+        # Initialize encoder ONCE (important)
+        self.encoder = FaceEncoder()
+
+        # ---------------- Signals ----------------
         self.image_btn.clicked.connect(self.load_image)
         self.video_btn.clicked.connect(self.verify_video)
         self.stop_btn.clicked.connect(self.stop)
@@ -52,12 +61,20 @@ class FaceWindow(QMainWindow):
         if not path:
             return
 
-        # Use your existing face encoder logic
-        from face.face_encoder import encode_image
-        self.reference_embeddings = encode_image(path)
+        try:
+            # Encode reference face (returns single embedding)
+            embedding = self.encoder.encode(path)
 
-        self.face_finder = VideoFinder(self.reference_embeddings)
-        QMessageBox.information(self, "Face", "Reference image loaded")
+            # VideoFinder expects a LIST of embeddings
+            self.reference_embeddings = [embedding]
+            self.face_finder = VideoFinder(self.reference_embeddings)
+
+            QMessageBox.information(
+                self, "Face", "Reference image loaded successfully"
+            )
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
 
     # -------- VIDEO VERIFY --------
     def verify_video(self):
@@ -84,15 +101,21 @@ class FaceWindow(QMainWindow):
 
         self.cap.release()
 
+    # -------- STOP VIDEO ONLY --------
     def stop(self):
         if self.cap:
             self.cap.release()
+            self.cap = None
+
         self.video_label.setText("Stopped")
 
+    # -------- BACK --------
     def go_back(self):
         self.close()
-        self.parent().show()
+        if self.parent():
+            self.parent().show()
 
+    # -------- DISPLAY --------
     def display(self, frame):
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
