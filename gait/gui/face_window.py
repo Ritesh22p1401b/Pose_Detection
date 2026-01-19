@@ -1,59 +1,70 @@
 import cv2
-import numpy as np
-
 from PySide6.QtWidgets import (
     QMainWindow, QLabel, QPushButton, QFileDialog,
-    QVBoxLayout, QWidget, QMessageBox, QApplication
+    QVBoxLayout, QWidget, QMessageBox
 )
 from PySide6.QtGui import QPixmap, QImage
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 
 from face.webcam import VideoFinder
 from face.face_encoder import FaceEncoder
 
 
+# -------- FIXED GUI + VIDEO RESOLUTION --------
+VIDEO_WIDTH = 640
+VIDEO_HEIGHT = 480
+
+
+def resize_with_aspect_ratio(frame, target_w, target_h):
+    h, w = frame.shape[:2]
+    scale = min(target_w / w, target_h / h)
+    new_w = int(w * scale)
+    new_h = int(h * scale)
+    return cv2.resize(frame, (new_w, new_h))
+
+
 class FaceWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Face Recognition")
-        self.resize(900, 650)
+        self.setWindowTitle("Face Verification")
+        self.setFixedSize(VIDEO_WIDTH, VIDEO_HEIGHT)
 
-        # ---------------- UI ----------------
-        self.video_label = QLabel("Face Feed")
+        # -------- VIDEO DISPLAY --------
+        self.video_label = QLabel()
+        self.video_label.setFixedSize(VIDEO_WIDTH, VIDEO_HEIGHT)
         self.video_label.setAlignment(Qt.AlignCenter)
-        self.video_label.setFixedSize(640, 480)
+        self.video_label.setStyleSheet("background-color: black;")
 
-        self.image_btn = QPushButton("Upload Reference Image")
-        self.video_btn = QPushButton("Upload Video")
-        self.stop_btn = QPushButton("Stop Verification")
-        self.back_btn = QPushButton("Back")
+        # -------- BUTTONS --------
+        self.image_btn = QPushButton("Upload Image")
+        self.video_btn = QPushButton("Verify Video")
+        self.stop_btn = QPushButton("Stop")
 
         layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.video_label)
         layout.addWidget(self.image_btn)
         layout.addWidget(self.video_btn)
         layout.addWidget(self.stop_btn)
-        layout.addWidget(self.back_btn)
 
         container = QWidget()
         container.setLayout(layout)
         self.setCentralWidget(container)
 
-        # ---------------- State ----------------
+        # -------- STATE --------
         self.cap = None
         self.face_finder = None
-        self.reference_embeddings = []
-
-        # Initialize encoder ONCE (important)
         self.encoder = FaceEncoder()
 
-        # ---------------- Signals ----------------
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_frame)
+
+        # -------- SIGNALS --------
         self.image_btn.clicked.connect(self.load_image)
         self.video_btn.clicked.connect(self.verify_video)
         self.stop_btn.clicked.connect(self.stop)
-        self.back_btn.clicked.connect(self.go_back)
 
-    # -------- IMAGE UPLOAD --------
+    # -------- LOAD REFERENCE IMAGE --------
     def load_image(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "Select Face Image", "", "Images (*.jpg *.png)"
@@ -61,25 +72,15 @@ class FaceWindow(QMainWindow):
         if not path:
             return
 
-        try:
-            # Encode reference face (returns single embedding)
-            embedding = self.encoder.encode(path)
+        embedding = self.encoder.encode(path)
+        self.face_finder = VideoFinder([embedding])
 
-            # VideoFinder expects a LIST of embeddings
-            self.reference_embeddings = [embedding]
-            self.face_finder = VideoFinder(self.reference_embeddings)
+        QMessageBox.information(self, "Face", "Reference image loaded")
 
-            QMessageBox.information(
-                self, "Face", "Reference image loaded successfully"
-            )
-
-        except Exception as e:
-            QMessageBox.critical(self, "Error", str(e))
-
-    # -------- VIDEO VERIFY --------
+    # -------- START VIDEO VERIFICATION --------
     def verify_video(self):
         if self.face_finder is None:
-            QMessageBox.warning(self, "Error", "Upload face image first")
+            QMessageBox.warning(self, "Error", "Upload reference image first")
             return
 
         path, _ = QFileDialog.getOpenFileName(
@@ -89,35 +90,36 @@ class FaceWindow(QMainWindow):
             return
 
         self.cap = cv2.VideoCapture(path)
+        self.timer.start(30)  # ~30 FPS
 
-        while self.cap.isOpened():
-            ret, frame = self.cap.read()
-            if not ret:
-                break
+    # -------- FRAME UPDATE --------
+    def update_frame(self):
+        if not self.cap or not self.cap.isOpened():
+            return
 
-            frame, found, score = self.face_finder.detect_frame(frame)
-            self.display(frame)
-            QApplication.processEvents()
+        ret, frame = self.cap.read()
+        if not ret:
+            self.stop()
+            return
 
-        self.cap.release()
+        # Face detection + green/red boxes
+        frame, _, _ = self.face_finder.detect_frame(frame)
 
-    # -------- STOP VIDEO ONLY --------
-    def stop(self):
-        if self.cap:
-            self.cap.release()
-            self.cap = None
+        # ---- BEST FIT (NO STRETCH) ----
+        frame = resize_with_aspect_ratio(
+            frame, VIDEO_WIDTH, VIDEO_HEIGHT
+        )
 
-        self.video_label.setText("Stopped")
-
-    # -------- BACK --------
-    def go_back(self):
-        self.close()
-        if self.parent():
-            self.parent().show()
-
-    # -------- DISPLAY --------
-    def display(self, frame):
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
         qimg = QImage(rgb.data, w, h, ch * w, QImage.Format_RGB888)
+
         self.video_label.setPixmap(QPixmap.fromImage(qimg))
+
+    # -------- STOP VIDEO ONLY --------
+    def stop(self):
+        self.timer.stop()
+        if self.cap:
+            self.cap.release()
+            self.cap = None
+        self.video_label.clear()
