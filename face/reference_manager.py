@@ -11,8 +11,7 @@ REFERENCE_DIR = "face/reference_faces"
 
 
 class ReferenceManager(QWidget):
-    closed = Signal()
-    person_selected = Signal(str)
+    persons_selected = Signal(list)
 
     def __init__(self):
         super().__init__()
@@ -21,34 +20,24 @@ class ReferenceManager(QWidget):
 
         os.makedirs(REFERENCE_DIR, exist_ok=True)
 
-        # ---------------- LIST ----------------
         self.list = QListWidget()
+        self.list.setSelectionMode(QListWidget.MultiSelection)
 
-        # 🔹 ENABLE MULTI-SELECTION (safe)
-        self.list.setSelectionMode(QListWidget.ExtendedSelection)
-
-        # ---------------- PREVIEW ----------------
         self.preview = QLabel("Image Preview")
         self.preview.setAlignment(Qt.AlignCenter)
         self.preview.setFixedHeight(200)
         self.preview.setStyleSheet("border: 1px solid gray;")
 
-        # ---------------- STATUS LABEL ----------------
-        self.selection_label = QLabel("Selected persons: 0")
-        self.selection_label.setAlignment(Qt.AlignCenter)
-        self.selection_label.setStyleSheet("font-weight: bold;")
-
-        # ---------------- BUTTONS ----------------
+        self.select_btn = QPushButton("Select Profiles")
         self.add_person = QPushButton("Create Person")
         self.rename_person = QPushButton("Rename")
         self.delete_person = QPushButton("Delete")
         self.add_images = QPushButton("Add Images")
 
-        # ---------------- LAYOUT ----------------
-        layout = QVBoxLayout()
+        layout = QVBoxLayout(self)
         layout.addWidget(self.list)
         layout.addWidget(self.preview)
-        layout.addWidget(self.selection_label)
+        layout.addWidget(self.select_btn)
 
         btns = QHBoxLayout()
         btns.addWidget(self.add_person)
@@ -57,160 +46,87 @@ class ReferenceManager(QWidget):
 
         layout.addLayout(btns)
         layout.addWidget(self.add_images)
-        self.setLayout(layout)
 
-        # ---------------- SIGNALS ----------------
+        self.select_btn.clicked.connect(self.select_profiles)
         self.add_person.clicked.connect(self.create_person)
         self.rename_person.clicked.connect(self.rename)
         self.delete_person.clicked.connect(self.delete)
         self.add_images.clicked.connect(self.add_imgs)
-
-        self.list.itemDoubleClicked.connect(self.select_person)
-        self.list.itemSelectionChanged.connect(self.update_selection_count)
         self.list.currentItemChanged.connect(self.preview_image)
 
         self.refresh()
-        self.update_selection_count()
 
-    # --------------------------------------------------
-    # WINDOW CLOSE
-    # --------------------------------------------------
-    def closeEvent(self, event):
-        self.closed.emit()
-        event.accept()
-
-    # --------------------------------------------------
-    # REFRESH LIST
-    # --------------------------------------------------
     def refresh(self):
         self.list.clear()
         for name in sorted(os.listdir(REFERENCE_DIR)):
             if os.path.isdir(os.path.join(REFERENCE_DIR, name)):
                 self.list.addItem(name)
 
-    # --------------------------------------------------
-    # SELECTION COUNT
-    # --------------------------------------------------
-    def update_selection_count(self):
-        count = len(self.list.selectedItems())
-        self.selection_label.setText(f"Selected persons: {count}")
+    def select_profiles(self):
+        items = self.list.selectedItems()
+        if not items:
+            QMessageBox.warning(self, "Error", "No profile selected")
+            return
 
-    # --------------------------------------------------
-    # DOUBLE-CLICK → LOAD SINGLE PERSON
-    # --------------------------------------------------
-    def select_person(self, item):
-        self.person_selected.emit(item.text())
+        self.persons_selected.emit([i.text() for i in items])
+        self.close()
 
-    # --------------------------------------------------
-    # CREATE PERSON
-    # --------------------------------------------------
     def create_person(self):
         name, ok = QInputDialog.getText(self, "Create Person", "Person name:")
-        if not ok or not name.strip():
-            return
+        if ok and name.strip():
+            os.makedirs(os.path.join(REFERENCE_DIR, name.strip()), exist_ok=True)
+            self.refresh()
 
-        path = os.path.join(REFERENCE_DIR, name.strip())
-        if os.path.exists(path):
-            QMessageBox.warning(self, "Error", "Person already exists")
-            return
-
-        os.makedirs(path)
-        self.refresh()
-
-    # --------------------------------------------------
-    # RENAME PERSON
-    # --------------------------------------------------
     def rename(self):
         item = self.list.currentItem()
         if not item:
-            QMessageBox.warning(self, "Error", "Select a person first")
             return
 
-        old = item.text()
-        new, ok = QInputDialog.getText(self, "Rename Person", "New name:")
+        new, ok = QInputDialog.getText(self, "Rename", "New name:")
         if ok and new.strip():
             os.rename(
-                os.path.join(REFERENCE_DIR, old),
-                os.path.join(REFERENCE_DIR, new.strip()),
+                os.path.join(REFERENCE_DIR, item.text()),
+                os.path.join(REFERENCE_DIR, new.strip())
             )
             self.refresh()
 
-    # --------------------------------------------------
-    # DELETE PERSON
-    # --------------------------------------------------
     def delete(self):
-        items = self.list.selectedItems()
-        if not items:
-            QMessageBox.warning(self, "Error", "Select at least one person")
+        item = self.list.currentItem()
+        if not item:
             return
 
-        reply = QMessageBox.question(
-            self,
-            "Confirm Delete",
-            f"Delete {len(items)} selected person(s)?",
-            QMessageBox.Yes | QMessageBox.No
-        )
-
-        if reply != QMessageBox.Yes:
-            return
-
-        for item in items:
-            shutil.rmtree(os.path.join(REFERENCE_DIR, item.text()))
-
-        self.refresh()
+        shutil.rmtree(os.path.join(REFERENCE_DIR, item.text()))
         self.preview.clear()
-        self.update_selection_count()
+        self.refresh()
 
-    # --------------------------------------------------
-    # ADD IMAGES
-    # --------------------------------------------------
     def add_imgs(self):
         item = self.list.currentItem()
         if not item:
-            QMessageBox.warning(self, "Error", "Select a person first")
             return
 
         files, _ = QFileDialog.getOpenFileNames(
             self, "Select Images", "", "Images (*.jpg *.png)"
         )
-        if not files:
-            return
 
         for f in files:
             shutil.copy(f, os.path.join(REFERENCE_DIR, item.text()))
 
-        QMessageBox.information(
-            self, "Success",
-            f"{len(files)} images added to {item.text()}"
-        )
-
         self.preview_image(item)
 
-    # --------------------------------------------------
-    # IMAGE PREVIEW
-    # --------------------------------------------------
     def preview_image(self, item):
         if not item:
             self.preview.clear()
             return
 
         person_dir = os.path.join(REFERENCE_DIR, item.text())
-        images = [
-            f for f in os.listdir(person_dir)
-            if f.lower().endswith((".jpg", ".png"))
-        ]
+        images = [f for f in os.listdir(person_dir)
+                  if f.lower().endswith((".jpg", ".png"))]
 
         if not images:
             self.preview.setText("No images")
             return
 
-        img_path = os.path.join(person_dir, images[0])
-        pix = QPixmap(img_path)
+        pix = QPixmap(os.path.join(person_dir, images[0]))
         self.preview.setPixmap(
-            pix.scaled(
-                self.preview.width(),
-                self.preview.height(),
-                Qt.KeepAspectRatio,
-                Qt.SmoothTransformation
-            )
+            pix.scaled(self.preview.size(), Qt.KeepAspectRatio)
         )
