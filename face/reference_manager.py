@@ -1,9 +1,10 @@
 import os
 import shutil
 from PySide6.QtWidgets import (
-    QWidget, QListWidget, QPushButton, QFileDialog,
+    QWidget, QListWidget, QLabel, QPushButton, QFileDialog,
     QVBoxLayout, QHBoxLayout, QMessageBox, QInputDialog
 )
+from PySide6.QtGui import QPixmap
 
 REFERENCE_DIR = "face/reference_faces"
 
@@ -11,69 +12,77 @@ REFERENCE_DIR = "face/reference_faces"
 class ReferenceManager(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Reference Face Manager")
-        self.setFixedSize(300, 400)
+        self.setWindowTitle("Reference Manager")
+        self.setFixedSize(400, 500)
 
         os.makedirs(REFERENCE_DIR, exist_ok=True)
 
-        self.person_list = QListWidget()
+        self.list = QListWidget()
+        self.preview = QLabel("Image Preview")
+        self.preview.setFixedHeight(200)
 
-        self.create_btn = QPushButton("Create Person Folder")
-        self.add_img_btn = QPushButton("Add Images")
-        self.refresh_btn = QPushButton("Refresh List")
-
-        btn_layout = QHBoxLayout()
-        btn_layout.addWidget(self.create_btn)
-        btn_layout.addWidget(self.add_img_btn)
+        self.add_person = QPushButton("Create Person")
+        self.rename_person = QPushButton("Rename")
+        self.delete_person = QPushButton("Delete")
+        self.add_images = QPushButton("Add Images")
 
         layout = QVBoxLayout()
-        layout.addWidget(self.person_list)
-        layout.addLayout(btn_layout)
-        layout.addWidget(self.refresh_btn)
+        layout.addWidget(self.list)
+        layout.addWidget(self.preview)
 
+        btns = QHBoxLayout()
+        btns.addWidget(self.add_person)
+        btns.addWidget(self.rename_person)
+        btns.addWidget(self.delete_person)
+
+        layout.addLayout(btns)
+        layout.addWidget(self.add_images)
         self.setLayout(layout)
 
-        self.create_btn.clicked.connect(self.create_person)
-        self.add_img_btn.clicked.connect(self.add_images)
-        self.refresh_btn.clicked.connect(self.load_persons)
+        self.add_person.clicked.connect(self.create_person)
+        self.rename_person.clicked.connect(self.rename)
+        self.delete_person.clicked.connect(self.delete)
+        self.add_images.clicked.connect(self.add_imgs)
+        self.list.currentTextChanged.connect(self.preview_image)
 
-        self.load_persons()
+        self.refresh()
 
-    def load_persons(self):
-        self.person_list.clear()
-        for name in os.listdir(REFERENCE_DIR):
-            path = os.path.join(REFERENCE_DIR, name)
-            if os.path.isdir(path):
-                self.person_list.addItem(name)
+    def refresh(self):
+        self.list.clear()
+        self.list.addItems(os.listdir(REFERENCE_DIR))
 
     def create_person(self):
-        name, ok = QInputDialog.getText(
-            self, "Create Person", "Enter person name:"
+        name, ok = QInputDialog.getText(self, "Name", "Person name:")
+        if ok:
+            os.makedirs(os.path.join(REFERENCE_DIR, name), exist_ok=True)
+            self.refresh()
+
+    def rename(self):
+        old = self.list.currentItem().text()
+        new, ok = QInputDialog.getText(self, "Rename", "New name:")
+        if ok:
+            os.rename(
+                os.path.join(REFERENCE_DIR, old),
+                os.path.join(REFERENCE_DIR, new),
+            )
+            self.refresh()
+
+    def delete(self):
+        person = self.list.currentItem().text()
+        shutil.rmtree(os.path.join(REFERENCE_DIR, person))
+        self.refresh()
+
+    def add_imgs(self):
+        person = self.list.currentItem().text()
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "Images", "", "Images (*.jpg *.png)"
         )
-        if not ok or not name.strip():
-            return
+        for f in files:
+            shutil.copy(f, os.path.join(REFERENCE_DIR, person))
 
-        path = os.path.join(REFERENCE_DIR, name)
-        os.makedirs(path, exist_ok=True)
-        self.load_persons()
-
-    def add_images(self):
-        item = self.person_list.currentItem()
-        if not item:
-            QMessageBox.warning(self, "Error", "Select a person first")
-            return
-
-        paths, _ = QFileDialog.getOpenFileNames(
-            self, "Select Images", "", "Images (*.jpg *.png)"
-        )
-        if not paths:
-            return
-
-        person_dir = os.path.join(REFERENCE_DIR, item.text())
-
-        for p in paths:
-            shutil.copy(p, person_dir)
-
-        QMessageBox.information(
-            self, "Done", f"{len(paths)} images added"
-        )
+    def preview_image(self, person):
+        p_dir = os.path.join(REFERENCE_DIR, person)
+        imgs = os.listdir(p_dir)
+        if imgs:
+            pix = QPixmap(os.path.join(p_dir, imgs[0]))
+            self.preview.setPixmap(pix.scaledToWidth(200))

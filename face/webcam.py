@@ -1,161 +1,12 @@
-# import cv2
-# import numpy as np
-# import onnxruntime as ort
-# from insightface.app import FaceAnalysis
-# from face.face_matcher import cosine_similarity
-
-
-# def create_tracker():
-#     if hasattr(cv2, "TrackerCSRT_create"):
-#         return cv2.TrackerCSRT_create()
-#     if hasattr(cv2, "TrackerKCF_create"):
-#         return cv2.TrackerKCF_create()
-#     if hasattr(cv2, "TrackerMOSSE_create"):
-#         return cv2.TrackerMOSSE_create()
-#     if hasattr(cv2, "legacy"):
-#         if hasattr(cv2.legacy, "TrackerCSRT_create"):
-#             return cv2.legacy.TrackerCSRT_create()
-#         if hasattr(cv2.legacy, "TrackerKCF_create"):
-#             return cv2.legacy.TrackerKCF_create()
-#         if hasattr(cv2.legacy, "TrackerMOSSE_create"):
-#             return cv2.legacy.TrackerMOSSE_create()
-#     raise RuntimeError("No OpenCV tracker available")
-
-
-# class VideoFinder:
-#     def __init__(
-#         self,
-#         reference_embeddings,
-#         threshold=0.35,
-#         detect_interval=5,
-#         iou_threshold=0.3,
-#     ):
-#         self.reference_embeddings = reference_embeddings
-#         self.threshold = threshold
-#         self.detect_interval = detect_interval
-#         self.iou_threshold = iou_threshold
-
-#         # -------- AUTO CPU / CUDA --------
-#         providers = ort.get_available_providers()
-#         self.ctx_id = 0 if "CUDAExecutionProvider" in providers else -1
-
-#         self.app = FaceAnalysis(name="buffalo_l")
-#         self.app.prepare(ctx_id=self.ctx_id, det_size=(640, 640))
-
-#         self.frame_count = 0
-#         self.trackers = []  # {tracker, bbox, score}
-
-#     # ---------- Utility ----------
-#     def _best_similarity(self, embedding):
-#         return max(
-#             cosine_similarity(embedding, ref)
-#             for ref in self.reference_embeddings
-#         )
-
-#     def _iou(self, a, b):
-#         ax, ay, aw, ah = a
-#         bx, by, bw, bh = b
-
-#         inter_x1 = max(ax, bx)
-#         inter_y1 = max(ay, by)
-#         inter_x2 = min(ax + aw, bx + bw)
-#         inter_y2 = min(ay + ah, by + bh)
-
-#         if inter_x2 <= inter_x1 or inter_y2 <= inter_y1:
-#             return 0.0
-
-#         inter = (inter_x2 - inter_x1) * (inter_y2 - inter_y1)
-#         union = aw * ah + bw * bh - inter
-#         return inter / union
-
-#     def _clamp_bbox(self, bbox, w, h):
-#         x, y, bw, bh = bbox
-#         x = max(0, x)
-#         y = max(0, y)
-#         bw = min(bw, w - x)
-#         bh = min(bh, h - y)
-#         return x, y, bw, bh
-
-#     # ---------- Main ----------
-#     def detect_frame(self, frame):
-#         self.frame_count += 1
-#         found_any = False
-#         best_score = 0.0
-#         h, w = frame.shape[:2]
-
-#         # ---- Update trackers ----
-#         active = []
-#         for t in self.trackers:
-#             ok, bbox = t["tracker"].update(frame)
-#             if not ok:
-#                 continue
-
-#             x, y, bw, bh = self._clamp_bbox(
-#                 tuple(map(int, bbox)), w, h
-#             )
-
-#             t["bbox"] = (x, y, bw, bh)
-#             color = (0, 255, 0) if t["score"] >= self.threshold else (0, 0, 255)
-
-#             cv2.rectangle(
-#                 frame, (x, y), (x + bw, y + bh), color, 2
-#             )
-
-#             found_any = True
-#             best_score = max(best_score, t["score"])
-#             active.append(t)
-
-#         self.trackers = active
-
-#         # ---- Detect faces ----
-#         if self.frame_count % self.detect_interval == 0:
-#             faces = self.app.get(frame)
-
-#             for face in faces:
-#                 score = self._best_similarity(face.embedding)
-
-#                 x1, y1, x2, y2 = map(int, face.bbox)
-#                 new_bbox = self._clamp_bbox(
-#                     (x1, y1, x2 - x1, y2 - y1), w, h
-#                 )
-
-#                 # Draw RED box for unmatched face
-#                 if score < self.threshold:
-#                     cv2.rectangle(
-#                         frame,
-#                         (new_bbox[0], new_bbox[1]),
-#                         (new_bbox[0] + new_bbox[2], new_bbox[1] + new_bbox[3]),
-#                         (0, 0, 255),
-#                         2,
-#                     )
-#                     continue
-
-#                 # Avoid duplicates
-#                 if any(
-#                     self._iou(new_bbox, t["bbox"]) > self.iou_threshold
-#                     for t in self.trackers
-#                 ):
-#                     continue
-
-#                 tracker = create_tracker()
-#                 tracker.init(frame, new_bbox)
-
-#                 self.trackers.append({
-#                     "tracker": tracker,
-#                     "bbox": new_bbox,
-#                     "score": score,
-#                 })
-
-#         return frame, found_any, best_score
-
-
 import cv2
-import numpy as np
 import onnxruntime as ort
 from insightface.app import FaceAnalysis
 from face.face_matcher import cosine_similarity
 
 
+# --------------------------------------------------
+# TRACKER FACTORY
+# --------------------------------------------------
 def create_tracker():
     if hasattr(cv2, "TrackerCSRT_create"):
         return cv2.TrackerCSRT_create()
@@ -164,15 +15,18 @@ def create_tracker():
     raise RuntimeError("No OpenCV tracker available")
 
 
+# --------------------------------------------------
+# VIDEO FINDER
+# --------------------------------------------------
 class VideoFinder:
     def __init__(
         self,
-        reference_embeddings,
+        person_db,                  # dict[name -> embedding]
         threshold=0.35,
         detect_interval=5,
         iou_threshold=0.3,
     ):
-        self.reference_embeddings = reference_embeddings
+        self.person_db = person_db
         self.threshold = threshold
         self.detect_interval = detect_interval
         self.iou_threshold = iou_threshold
@@ -184,85 +38,49 @@ class VideoFinder:
         self.app.prepare(ctx_id=self.ctx_id, det_size=(640, 640))
 
         self.frame_count = 0
-        self.trackers = []
+        self.trackers = []  # {tracker, bbox, score, matched, name}
 
-    def _best_similarity(self, embedding):
-        return max(
-            cosine_similarity(embedding, ref)
-            for ref in self.reference_embeddings
-        )
+    # --------------------------------------------------
+    # BEST MATCH (FIXED)
+    # --------------------------------------------------
+    def _best_match(self, embedding):
+        best_score = 0.0
+        best_name = None
 
+        for name, ref_emb in self.person_db.items():
+            score = cosine_similarity(embedding, ref_emb)
+            if score > best_score:
+                best_score = score
+                best_name = name
+
+        return best_score, best_name
+
+    # --------------------------------------------------
+    # IOU
+    # --------------------------------------------------
     def _iou(self, a, b):
         ax, ay, aw, ah = a
         bx, by, bw, bh = b
+
         inter_x1 = max(ax, bx)
         inter_y1 = max(ay, by)
         inter_x2 = min(ax + aw, bx + bw)
         inter_y2 = min(ay + ah, by + bh)
+
         if inter_x2 <= inter_x1 or inter_y2 <= inter_y1:
             return 0.0
+
         inter = (inter_x2 - inter_x1) * (inter_y2 - inter_y1)
         union = aw * ah + bw * bh - inter
         return inter / union
 
-    # def detect_frame(self, frame):
-    #     self.frame_count += 1
-    #     h, w = frame.shape[:2]
-
-    #     # ---- Update trackers ----
-    #     active = []
-    #     for t in self.trackers:
-    #         ok, bbox = t["tracker"].update(frame)
-    #         if not ok:
-    #             continue
-
-    #         x, y, bw, bh = map(int, bbox)
-    #         color = (0, 255, 0) if t["score"] >= self.threshold else (0, 0, 255)
-    #         label = "FOUND" if t["score"] >= self.threshold else "NOT FOUND"
-
-    #         cv2.rectangle(frame, (x, y), (x + bw, y + bh), color, 2)
-    #         cv2.putText(
-    #             frame,
-    #             f"{label} {t['score']:.2f}",
-    #             (x, y - 10),
-    #             cv2.FONT_HERSHEY_SIMPLEX,
-    #             0.6,
-    #             color,
-    #             2,
-    #         )
-
-    #         active.append(t)
-
-    #     self.trackers = active
-
-    #     # ---- Detect faces periodically ----
-    #     if self.frame_count % self.detect_interval == 0:
-    #         faces = self.app.get(frame)
-
-    #         for face in faces:
-    #             score = self._best_similarity(face.embedding)
-    #             x1, y1, x2, y2 = map(int, face.bbox)
-    #             bbox = (x1, y1, x2 - x1, y2 - y1)
-
-    #             if any(self._iou(bbox, t["bbox"]) > self.iou_threshold for t in self.trackers):
-    #                 continue
-
-    #             tracker = create_tracker()
-    #             tracker.init(frame, bbox)
-
-    #             self.trackers.append({
-    #                 "tracker": tracker,
-    #                 "bbox": bbox,
-    #                 "score": score,
-    #             })
-
-    #     return frame
-
+    # --------------------------------------------------
+    # MAIN FRAME LOGIC
+    # --------------------------------------------------
     def detect_frame(self, frame):
         self.frame_count += 1
-        h, w = frame.shape[:2]
 
-        # ---------- UPDATE EXISTING TRACKERS ----------
+        # ---------- UPDATE TRACKERS ----------
         active = []
         for t in self.trackers:
             ok, bbox = t["tracker"].update(frame)
@@ -274,7 +92,7 @@ class VideoFinder:
 
             if t["matched"]:
                 color = (0, 255, 0)
-                label = f"FOUND {t['score']:.2f}"
+                label = f"{t['name']} {t['score']:.2f}"
             else:
                 color = (0, 0, 255)
                 label = f"NOT FOUND {t['score']:.2f}"
@@ -301,11 +119,12 @@ class VideoFinder:
         faces = self.app.get(frame)
 
         for face in faces:
-            score = self._best_similarity(face.embedding)
+            score, name = self._best_match(face.embedding)
+
             x1, y1, x2, y2 = map(int, face.bbox)
             bbox = (x1, y1, x2 - x1, y2 - y1)
 
-            # Skip if already tracked
+            # Avoid duplicate tracking
             if any(
                 self._iou(bbox, t["bbox"]) > self.iou_threshold
                 for t in self.trackers
@@ -322,19 +141,23 @@ class VideoFinder:
                 "bbox": bbox,
                 "score": score,
                 "matched": matched,
+                "name": name if matched else "Unknown",
             })
 
-            # Draw immediately (first frame)
+            # Draw immediately
             color = (0, 255, 0) if matched else (0, 0, 255)
-            label = "FOUND" if matched else "NOT FOUND"
+            label = f"{name} {score:.2f}" if matched else f"NOT FOUND {score:.2f}"
 
-            cv2.rectangle(frame, (bbox[0], bbox[1]),
-                        (bbox[0] + bbox[2], bbox[1] + bbox[3]),
-                        color, 2)
-
+            cv2.rectangle(
+                frame,
+                (bbox[0], bbox[1]),
+                (bbox[0] + bbox[2], bbox[1] + bbox[3]),
+                color,
+                2,
+            )
             cv2.putText(
                 frame,
-                f"{label} {score:.2f}",
+                label,
                 (bbox[0], bbox[1] - 10),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.6,
