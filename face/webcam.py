@@ -205,11 +205,64 @@ class VideoFinder:
         union = aw * ah + bw * bh - inter
         return inter / union
 
+    # def detect_frame(self, frame):
+    #     self.frame_count += 1
+    #     h, w = frame.shape[:2]
+
+    #     # ---- Update trackers ----
+    #     active = []
+    #     for t in self.trackers:
+    #         ok, bbox = t["tracker"].update(frame)
+    #         if not ok:
+    #             continue
+
+    #         x, y, bw, bh = map(int, bbox)
+    #         color = (0, 255, 0) if t["score"] >= self.threshold else (0, 0, 255)
+    #         label = "FOUND" if t["score"] >= self.threshold else "NOT FOUND"
+
+    #         cv2.rectangle(frame, (x, y), (x + bw, y + bh), color, 2)
+    #         cv2.putText(
+    #             frame,
+    #             f"{label} {t['score']:.2f}",
+    #             (x, y - 10),
+    #             cv2.FONT_HERSHEY_SIMPLEX,
+    #             0.6,
+    #             color,
+    #             2,
+    #         )
+
+    #         active.append(t)
+
+    #     self.trackers = active
+
+    #     # ---- Detect faces periodically ----
+    #     if self.frame_count % self.detect_interval == 0:
+    #         faces = self.app.get(frame)
+
+    #         for face in faces:
+    #             score = self._best_similarity(face.embedding)
+    #             x1, y1, x2, y2 = map(int, face.bbox)
+    #             bbox = (x1, y1, x2 - x1, y2 - y1)
+
+    #             if any(self._iou(bbox, t["bbox"]) > self.iou_threshold for t in self.trackers):
+    #                 continue
+
+    #             tracker = create_tracker()
+    #             tracker.init(frame, bbox)
+
+    #             self.trackers.append({
+    #                 "tracker": tracker,
+    #                 "bbox": bbox,
+    #                 "score": score,
+    #             })
+
+    #     return frame
+
     def detect_frame(self, frame):
         self.frame_count += 1
         h, w = frame.shape[:2]
 
-        # ---- Update trackers ----
+        # ---------- UPDATE EXISTING TRACKERS ----------
         active = []
         for t in self.trackers:
             ok, bbox = t["tracker"].update(frame)
@@ -217,13 +270,19 @@ class VideoFinder:
                 continue
 
             x, y, bw, bh = map(int, bbox)
-            color = (0, 255, 0) if t["score"] >= self.threshold else (0, 0, 255)
-            label = "FOUND" if t["score"] >= self.threshold else "NOT FOUND"
+            t["bbox"] = (x, y, bw, bh)
+
+            if t["matched"]:
+                color = (0, 255, 0)
+                label = f"FOUND {t['score']:.2f}"
+            else:
+                color = (0, 0, 255)
+                label = f"NOT FOUND {t['score']:.2f}"
 
             cv2.rectangle(frame, (x, y), (x + bw, y + bh), color, 2)
             cv2.putText(
                 frame,
-                f"{label} {t['score']:.2f}",
+                label,
                 (x, y - 10),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.6,
@@ -235,25 +294,52 @@ class VideoFinder:
 
         self.trackers = active
 
-        # ---- Detect faces periodically ----
-        if self.frame_count % self.detect_interval == 0:
-            faces = self.app.get(frame)
+        # ---------- FACE DETECTION ----------
+        if self.frame_count % self.detect_interval != 0:
+            return frame
 
-            for face in faces:
-                score = self._best_similarity(face.embedding)
-                x1, y1, x2, y2 = map(int, face.bbox)
-                bbox = (x1, y1, x2 - x1, y2 - y1)
+        faces = self.app.get(frame)
 
-                if any(self._iou(bbox, t["bbox"]) > self.iou_threshold for t in self.trackers):
-                    continue
+        for face in faces:
+            score = self._best_similarity(face.embedding)
+            x1, y1, x2, y2 = map(int, face.bbox)
+            bbox = (x1, y1, x2 - x1, y2 - y1)
 
-                tracker = create_tracker()
-                tracker.init(frame, bbox)
+            # Skip if already tracked
+            if any(
+                self._iou(bbox, t["bbox"]) > self.iou_threshold
+                for t in self.trackers
+            ):
+                continue
 
-                self.trackers.append({
-                    "tracker": tracker,
-                    "bbox": bbox,
-                    "score": score,
-                })
+            matched = score >= self.threshold
+
+            tracker = create_tracker()
+            tracker.init(frame, bbox)
+
+            self.trackers.append({
+                "tracker": tracker,
+                "bbox": bbox,
+                "score": score,
+                "matched": matched,
+            })
+
+            # Draw immediately (first frame)
+            color = (0, 255, 0) if matched else (0, 0, 255)
+            label = "FOUND" if matched else "NOT FOUND"
+
+            cv2.rectangle(frame, (bbox[0], bbox[1]),
+                        (bbox[0] + bbox[2], bbox[1] + bbox[3]),
+                        color, 2)
+
+            cv2.putText(
+                frame,
+                f"{label} {score:.2f}",
+                (bbox[0], bbox[1] - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                color,
+                2,
+            )
 
         return frame

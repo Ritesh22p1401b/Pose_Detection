@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (
     QMainWindow, QPushButton, QVBoxLayout, QWidget
 )
-from gait.gui.face_window import FaceWindow
+from pose.face.face_window import FaceWindow
 from gait.gui.gait_window import GaitWindow
 
 
