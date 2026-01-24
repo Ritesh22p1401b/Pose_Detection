@@ -10,6 +10,8 @@ from PySide6.QtCore import Qt, QTimer
 from face.webcam import VideoFinder
 from face.face_encoder import FaceEncoder
 from face.reference_manager import ReferenceManager
+from camera.auto_camera import AutoCamera
+
 
 VIDEO_WIDTH = 640
 VIDEO_HEIGHT = 480
@@ -165,19 +167,38 @@ class FaceWindow(QMainWindow):
         self.cap = cv2.VideoCapture(path)
         self.timer.start(30)
 
+    # def start_live(self):
+    #     if not self.face_finder:
+    #         QMessageBox.warning(self, "Error", "Load profiles first")
+    #         return
+
+    #     self.stop()
+    #     self.cap = cv2.VideoCapture(0)
+
+    #     if not self.cap.isOpened():
+    #         QMessageBox.critical(self, "Error", "Cannot open webcam")
+    #         return
+
+    #     self.timer.start(30)
     def start_live(self):
         if not self.face_finder:
             QMessageBox.warning(self, "Error", "Load profiles first")
             return
 
         self.stop()
-        self.cap = cv2.VideoCapture(0)
 
-        if not self.cap.isOpened():
-            QMessageBox.critical(self, "Error", "Cannot open webcam")
+        self.camera = AutoCamera()
+
+        try:
+            self.cap = self.camera.open()
+        except RuntimeError as e:
+            QMessageBox.critical(self, "Camera Error", str(e))
             return
 
+        print(f"[INFO] Live camera source: {self.camera.active_source}")
+
         self.timer.start(30)
+
 
     # --------------------------------------------------
     # FRAME LOOP
@@ -221,11 +242,20 @@ class FaceWindow(QMainWindow):
     # --------------------------------------------------
     # STOP (SAFE)
     # --------------------------------------------------
+    # def stop(self):
+    #     self.timer.stop()
+
+    #     if self.cap:
+    #         self.cap.release()
+    #         self.cap = None
+
+    #     self.video_label.clear()
     def stop(self):
         self.timer.stop()
 
-        if self.cap:
-            self.cap.release()
-            self.cap = None
+        if hasattr(self, "camera") and self.camera:
+            self.camera.release()
+            self.camera = None
 
+        self.cap = None
         self.video_label.clear()
