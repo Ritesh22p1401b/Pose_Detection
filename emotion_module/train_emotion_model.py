@@ -113,6 +113,6 @@ history = model.fit(
 # =====================================================
 # SAVE MODEL
 # =====================================================
-MODEL_PATH = "emotion/emotion_model.h5"
+MODEL_PATH = "emotion_module/emotion_model.h5"
 model.save(MODEL_PATH)
 print(f"[INFO] Emotion model saved at: {MODEL_PATH}")
