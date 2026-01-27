@@ -1,72 +1,97 @@
 import subprocess
-import tempfile
 import json
 import cv2
 import os
+import base64
+import numpy as np
 
 
 class EmotionAdapter:
-    def __init__(self):
-        # --------------------------------------------------
-        # Resolve paths RELATIVE TO THIS FILE (CRITICAL FIX)
-        # --------------------------------------------------
-        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-        PROJECT_ROOT = os.path.abspath(
-            os.path.join(BASE_DIR, "..", "..")
-        )
+    """
+    Windows-safe Emotion Adapter
+    - No temp files
+    - No stderr pipe deadlock
+    - No Errno 22
+    """
 
-        # ---- emotion venv python executable ----
+    def __init__(self):
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        EMOTION_MODULE_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))
+
         self.python = os.path.join(
-            PROJECT_ROOT,
-            "emotion_module",
+            EMOTION_MODULE_DIR,
             "emotion",
             "Scripts",
             "python.exe"
         )
 
-        # ---- emotion inference script ----
-        self.script = os.path.join(
-            PROJECT_ROOT,
-            "emotion_module",
+        self.worker = os.path.join(
+            EMOTION_MODULE_DIR,
             "emotion_code",
-            "emotion_predictor.py"
+            "emotion_worker.py"
         )
 
-        # ---- hard validation (fail fast) ----
         if not os.path.isfile(self.python):
-            raise FileNotFoundError(
-                f"Emotion python not found: {self.python}"
-            )
+            raise FileNotFoundError(self.python)
+        if not os.path.isfile(self.worker):
+            raise FileNotFoundError(self.worker)
 
-        if not os.path.isfile(self.script):
-            raise FileNotFoundError(
-                f"Emotion script not found: {self.script}"
-            )
+        # ⚠️ stderr NOT piped (CRITICAL FIX)
+        self.proc = subprocess.Popen(
+            [self.python, self.worker],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+            bufsize=1
+        )
 
+        print("[EmotionAdapter] Worker started safely")
+
+    # --------------------------------------------------
+    # SAFE PREDICT
+    # --------------------------------------------------
     def predict(self, face_roi):
-        with tempfile.NamedTemporaryFile(
-            suffix=".jpg", delete=False
-        ) as f:
-            cv2.imwrite(f.name, face_roi)
-            img_path = f.name
+        if face_roi is None or face_roi.size == 0:
+            return "Unknown", 0.0
+
+        h, w = face_roi.shape[:2]
+        if h < 48 or w < 48:
+            return "Unknown", 0.0
+
+        # ✅ Force contiguous memory
+        face_roi = np.ascontiguousarray(face_roi, dtype=np.uint8)
+
+        # ✅ Encode to JPEG in-memory
+        ok, buf = cv2.imencode(".jpg", face_roi)
+        if not ok:
+            return "Unknown", 0.0
+
+        img_b64 = base64.b64encode(buf).decode("utf-8")
 
         try:
-            result = subprocess.run(
-                [self.python, self.script, img_path],
-                capture_output=True,
-                text=True,
-                timeout=5
+            self.proc.stdin.write(
+                json.dumps({"image_b64": img_b64}) + "\n"
             )
+            self.proc.stdin.flush()
 
-            if result.returncode != 0:
-                raise RuntimeError(result.stderr)
+            response = self.proc.stdout.readline()
+            if not response:
+                return "Unknown", 0.0
 
-            data = json.loads(result.stdout)
-            return data.get("emotion", "Unknown"), data.get("confidence", 0.0)
+            data = json.loads(response)
+            return (
+                data.get("emotion", "Unknown"),
+                float(data.get("confidence", 0.0))
+            )
 
         except Exception as e:
             print("[EmotionAdapter ERROR]", e)
             return "Unknown", 0.0
 
-        finally:
-            os.remove(img_path)
+    def close(self):
+        try:
+            if self.proc:
+                self.proc.terminate()
+                self.proc = None
+        except Exception:
+            pass

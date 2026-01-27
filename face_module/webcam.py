@@ -23,15 +23,16 @@ from emotion_module.emotion_link.emotion_adapter import EmotionAdapter
 
 
 # --------------------------------------------------
-# CONFIG (VIDEO-BASED)
+# CONFIG
 # --------------------------------------------------
-TRACKER_TTL = 60                  # frames to keep tracker alive
-DETECT_INTERVAL = 5               # face detection interval
+TRACKER_TTL = 60
+DETECT_INTERVAL = 5
 IOU_THRESHOLD = 0.3
 
-EMOTION_UPDATE_INTERVAL = 12      # emotion sampled every N frames
-EMOTION_CONF_THRESHOLD = 0.40     # ignore weak predictions
-EMOTION_HISTORY_SIZE = 15         # sliding window size
+EMOTION_UPDATE_INTERVAL = 12
+EMOTION_HISTORY_SIZE = 15
+
+MIN_FACE_SIZE = 48   # DO NOT LOWER (hard safety floor)
 
 
 # --------------------------------------------------
@@ -56,16 +57,35 @@ def create_tracker():
 
 
 # --------------------------------------------------
+# ADAPTIVE CONFIDENCE (0.20 → 0.45)
+# --------------------------------------------------
+def adaptive_emotion_confidence(face_size):
+    """
+    Dynamic confidence threshold based on face size (distance).
+    Returns None if emotion should be skipped.
+    """
+    if face_size >= 120:
+        return 0.45
+    elif face_size >= 100:
+        return 0.40
+    elif face_size >= 80:
+        return 0.35
+    elif face_size >= 60:
+        return 0.25
+    elif face_size >= MIN_FACE_SIZE:
+        return 0.20
+    else:
+        return None  # too far, do not attempt emotion
+
+
+# --------------------------------------------------
 # TEMPORAL EMOTION AGGREGATION
 # --------------------------------------------------
 def dominant_emotion(history):
-    """
-    Confidence-weighted majority vote over last N frames
-    """
     scores = defaultdict(float)
 
-    for emo, conf in history:
-        scores[emo] += conf
+    for emo, weight in history:
+        scores[emo] += weight
 
     if not scores:
         return "Unknown"
@@ -137,7 +157,7 @@ class VideoFinder:
         self.frame_count += 1
         active = []
 
-        # -------- TRACK EXISTING FACES --------
+        # -------- TRACK EXISTING --------
         for t in self.trackers:
             ok, bbox = t["tracker"].update(frame)
             t["ttl"] -= 1
@@ -148,23 +168,29 @@ class VideoFinder:
             x, y, w, h = map(int, bbox)
             t["bbox"] = (x, y, w, h)
 
-            # -------- TEMPORAL EMOTION UPDATE --------
+            # -------- EMOTION (VIDEO-BASED) --------
             t["emotion_counter"] += 1
 
             if t["emotion_counter"] % EMOTION_UPDATE_INTERVAL == 0:
-                roi = frame[y:y+h, x:x+w]
+                face_size = min(w, h)
+                conf_thresh = adaptive_emotion_confidence(face_size)
 
-                if roi.size > 48 * 48:
-                    emotion, conf = self.emotion_engine.predict(roi)
+                if conf_thresh is not None:
+                    roi = frame[y:y+h, x:x+w]
 
-                    if emotion != "Unknown" and conf >= EMOTION_CONF_THRESHOLD:
-                        t["emotion_history"].append((emotion, conf))
+                    if roi.size >= MIN_FACE_SIZE * MIN_FACE_SIZE:
+                        emotion, conf = self.emotion_engine.predict(roi)
 
-                        # keep sliding window
-                        t["emotion_history"] = t["emotion_history"][-EMOTION_HISTORY_SIZE:]
+                        if emotion != "Unknown" and conf >= conf_thresh:
+                            # weight emotion by confidence and face size
+                            weight = conf * (face_size / 120.0)
+                            t["emotion_history"].append((emotion, weight))
 
-                        # compute final emotion
-                        t["emotion"] = dominant_emotion(t["emotion_history"])
+                            # sliding window
+                            t["emotion_history"] = t["emotion_history"][-EMOTION_HISTORY_SIZE:]
+
+                            # final emotion
+                            t["emotion"] = dominant_emotion(t["emotion_history"])
 
             color = (0, 255, 0) if t["matched"] else (0, 0, 255)
             label = f"{t['name']} | {t['emotion']}"

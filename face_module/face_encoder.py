@@ -13,6 +13,36 @@ class FaceEncoder:
         self.app = FaceAnalysis(name="buffalo_l")
         self.app.prepare(ctx_id=self.ctx_id, det_size=(640, 640))
 
+    # --------------------------------------------------
+    # QUICK VERIFY ENCODER (FIX)
+    # --------------------------------------------------
+    def encode_images(self, image_paths):
+        """
+        Used by Quick Verify.
+        Encodes uploaded images without saving them.
+        Returns a single averaged embedding.
+        """
+        embeddings = []
+
+        for path in image_paths:
+            image = cv2.imread(path)
+            if image is None:
+                continue
+
+            faces = self.app.get(image)
+            if not faces:
+                continue
+
+            embeddings.append(faces[0].embedding)
+
+        if not embeddings:
+            raise RuntimeError("No face detected in selected images")
+
+        return np.mean(np.vstack(embeddings), axis=0)
+
+    # --------------------------------------------------
+    # REFERENCE DIRECTORY ENCODER (UNCHANGED)
+    # --------------------------------------------------
     def encode_reference_directory(self, base_dir, selected_persons=None):
         person_db = {}
 

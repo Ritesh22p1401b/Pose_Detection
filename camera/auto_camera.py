@@ -3,46 +3,32 @@ import cv2
 
 class AutoCamera:
     """
-    Automatically selects iVCam (phone webcam) if available.
-    Falls back to laptop webcam if iVCam is not running.
+    iVCam ONLY camera handler
     """
 
-    # Common iVCam indices on Windows
-    IVCAM_INDICES = [1, 2, 3, 4]
+    def __init__(self, index=1, width=1280, height=720):
+        """
+        index=1 is default for iVCam on Windows
+        """
+        self.index = index
+        self.cap = cv2.VideoCapture(self.index, cv2.CAP_DSHOW)
 
-    LAPTOP_INDEX = 0
+        if not self.cap.isOpened():
+            raise RuntimeError(
+                "[AutoCamera] iVCam not detected. "
+                "Make sure iVCam is running and connected."
+            )
 
-    def __init__(self):
-        self.cap = None
-        self.active_source = None  # "ivcam" or "laptop"
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
 
-    def open(self):
-        # 1️⃣ Try iVCam first
-        for idx in self.IVCAM_INDICES:
-            cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
-            if cap.isOpened():
-                self.cap = cap
-                self.active_source = "ivcam"
-                print(f"[INFO] iVCam detected at index {idx}")
-                return self.cap
-            cap.release()
-
-        # 2️⃣ Fallback to laptop webcam
-        cap = cv2.VideoCapture(self.LAPTOP_INDEX, cv2.CAP_DSHOW)
-        if cap.isOpened():
-            self.cap = cap
-            self.active_source = "laptop"
-            print("[INFO] Laptop webcam detected")
-            return self.cap
-
-        raise RuntimeError(
-            "No camera available. Start iVCam or enable laptop webcam."
-        )
+        print("[AutoCamera] iVCam connected successfully")
 
     def read(self):
-        if self.cap is None:
-            return False, None
-        return self.cap.read()
+        ret, frame = self.cap.read()
+        if not ret or frame is None:
+            return None
+        return frame
 
     def release(self):
         if self.cap:

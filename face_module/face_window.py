@@ -33,7 +33,7 @@ VIDEO_WIDTH = 640
 VIDEO_HEIGHT = 480
 
 # --------------------------------------------------
-# ✅ FIXED: ABSOLUTE REFERENCE DIRECTORY
+# ABSOLUTE REFERENCE DIRECTORY
 # --------------------------------------------------
 REFERENCE_DIR = os.path.join(
     PROJECT_ROOT,
@@ -84,8 +84,10 @@ class FaceWindow(QMainWindow):
         # ---------------- STATE ----------------
         self.encoder = FaceEncoder()
         self.face_finder = None
-        self.cap = None
-        self.camera = None
+
+        self.cap = None        # cv2.VideoCapture (video files only)
+        self.camera = None     # AutoCamera (iVCam only)
+
         self.quick_mode = False
         self.selected_persons = []
 
@@ -155,7 +157,7 @@ class FaceWindow(QMainWindow):
         QMessageBox.information(self, "Loaded", "\n".join(person_db.keys()))
 
     # --------------------------------------------------
-    # VIDEO / LIVE
+    # VIDEO FILE
     # --------------------------------------------------
     def verify_video(self):
         if not self.face_finder:
@@ -172,6 +174,9 @@ class FaceWindow(QMainWindow):
         self.cap = cv2.VideoCapture(path)
         self.timer.start(30)
 
+    # --------------------------------------------------
+    # LIVE CAMERA (iVCam ONLY)
+    # --------------------------------------------------
     def start_live(self):
         if not self.face_finder:
             QMessageBox.warning(self, "Error", "Load profiles first")
@@ -179,25 +184,32 @@ class FaceWindow(QMainWindow):
 
         self.stop()
 
-        self.camera = AutoCamera()
         try:
-            self.cap = self.camera.open()
+            self.camera = AutoCamera(index=1)  # iVCam
         except RuntimeError as e:
             QMessageBox.critical(self, "Camera Error", str(e))
             return
 
+        self.cap = None
         self.timer.start(30)
 
     # --------------------------------------------------
     # FRAME LOOP
     # --------------------------------------------------
     def update_frame(self):
-        if not self.cap or not self.cap.isOpened():
-            return
+        # -------- LIVE CAMERA --------
+        if self.camera:
+            frame = self.camera.read()
+            if frame is None:
+                return
 
-        ret, frame = self.cap.read()
-        if not ret:
-            self.stop()
+        # -------- VIDEO FILE --------
+        elif self.cap:
+            ret, frame = self.cap.read()
+            if not ret:
+                self.stop()
+                return
+        else:
             return
 
         frame = self.face_finder.detect_frame(frame)
