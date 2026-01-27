@@ -3,7 +3,7 @@ EMOTION_LABELS = [
     "Disgust",
     "Fear",
     "Happy",
+    "Neutral",
     "Sad",
-    "Surprise",
-    "Neutral"
+    "Surprise"
 ]

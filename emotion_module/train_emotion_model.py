@@ -1,42 +1,46 @@
 import os
+import re
 import tensorflow as tf
-from tensorflow.keras.models import Sequential
+from tensorflow.keras.models import Sequential, load_model
 from tensorflow.keras.layers import (
     Conv2D, MaxPooling2D, Dense,
     Dropout, Flatten, BatchNormalization
 )
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.callbacks import ModelCheckpoint
 
 # =====================================================
-# GPU / CPU CONFIGURATION (AUTO)
+# GPU SETUP
 # =====================================================
+print("[INFO] TensorFlow:", tf.__version__)
 gpus = tf.config.list_physical_devices('GPU')
 if gpus:
-    try:
-        for gpu in gpus:
-            tf.config.experimental.set_memory_growth(gpu, True)
-        print("[INFO] GPU detected. CUDA enabled.")
-    except RuntimeError as e:
-        print(e)
+    for gpu in gpus:
+        tf.config.experimental.set_memory_growth(gpu, True)
+    print("[INFO] GPU ENABLED")
 else:
-    print("[INFO] No GPU detected. Using CPU.")
+    print("[WARNING] GPU NOT FOUND")
 
 # =====================================================
 # PATHS
 # =====================================================
-BASE_DIR = "datasets/emotion"
+BASE_DIR = "dataset"
 TRAIN_DIR = os.path.join(BASE_DIR, "train")
-TEST_DIR = os.path.join(BASE_DIR, "test")
+VAL_DIR   = os.path.join(BASE_DIR, "validation")
+TEST_DIR  = os.path.join(BASE_DIR, "test")
+
+CHECKPOINT_DIR = "checkpoints"
+os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
 # =====================================================
 # PARAMETERS
 # =====================================================
 IMG_SIZE = 48
 BATCH_SIZE = 64
-EPOCHS = 40
+TOTAL_EPOCHS = 40
 NUM_CLASSES = 7
-LEARNING_RATE = 0.0001
+LR = 0.0001
 
 # =====================================================
 # DATA GENERATORS
@@ -50,9 +54,9 @@ train_datagen = ImageDataGenerator(
     horizontal_flip=True
 )
 
-test_datagen = ImageDataGenerator(rescale=1./255)
+val_datagen = ImageDataGenerator(rescale=1./255)
 
-train_generator = train_datagen.flow_from_directory(
+train_gen = train_datagen.flow_from_directory(
     TRAIN_DIR,
     target_size=(IMG_SIZE, IMG_SIZE),
     color_mode="grayscale",
@@ -61,8 +65,8 @@ train_generator = train_datagen.flow_from_directory(
     shuffle=True
 )
 
-test_generator = test_datagen.flow_from_directory(
-    TEST_DIR,
+val_gen = val_datagen.flow_from_directory(
+    VAL_DIR,
     target_size=(IMG_SIZE, IMG_SIZE),
     color_mode="grayscale",
     batch_size=BATCH_SIZE,
@@ -71,48 +75,90 @@ test_generator = test_datagen.flow_from_directory(
 )
 
 # =====================================================
-# CNN MODEL
+# MODEL DEFINITION
 # =====================================================
-model = Sequential([
-    Conv2D(64, (3,3), activation="relu", input_shape=(48,48,1)),
-    BatchNormalization(),
-    MaxPooling2D(2,2),
+def build_model():
+    model = Sequential([
+        Conv2D(64, (3,3), activation="relu", input_shape=(48,48,1)),
+        BatchNormalization(),
+        MaxPooling2D(2,2),
 
-    Conv2D(128, (3,3), activation="relu"),
-    BatchNormalization(),
-    MaxPooling2D(2,2),
+        Conv2D(128, (3,3), activation="relu"),
+        BatchNormalization(),
+        MaxPooling2D(2,2),
 
-    Conv2D(256, (3,3), activation="relu"),
-    BatchNormalization(),
-    MaxPooling2D(2,2),
+        Conv2D(256, (3,3), activation="relu"),
+        BatchNormalization(),
+        MaxPooling2D(2,2),
 
-    Flatten(),
-    Dense(256, activation="relu"),
-    Dropout(0.5),
+        Flatten(),
+        Dense(256, activation="relu"),
+        Dropout(0.5),
 
-    Dense(NUM_CLASSES, activation="softmax")
-])
+        Dense(NUM_CLASSES, activation="softmax")
+    ])
 
-model.compile(
-    optimizer=Adam(learning_rate=LEARNING_RATE),
-    loss="categorical_crossentropy",
-    metrics=["accuracy"]
-)
+    model.compile(
+        optimizer=Adam(learning_rate=LR),
+        loss="categorical_crossentropy",
+        metrics=["accuracy"]
+    )
+    return model
+
+# =====================================================
+# FIND LAST CHECKPOINT
+# =====================================================
+def get_latest_checkpoint():
+    checkpoints = [f for f in os.listdir(CHECKPOINT_DIR) if f.endswith(".keras")]
+    if not checkpoints:
+        return None, 0
+
+    checkpoints.sort(key=lambda x: int(re.findall(r"\d+", x)[0]))
+    latest = checkpoints[-1]
+    epoch = int(re.findall(r"\d+", latest)[0])
+    return os.path.join(CHECKPOINT_DIR, latest), epoch
+
+checkpoint_path, last_epoch = get_latest_checkpoint()
+
+if checkpoint_path:
+    print(f"[INFO] Resuming from {checkpoint_path}")
+    model = load_model(checkpoint_path)
+    initial_epoch = last_epoch
+else:
+    print("[INFO] No checkpoint found. Starting fresh training.")
+    model = build_model()
+    initial_epoch = 0
 
 model.summary()
 
 # =====================================================
-# TRAINING
+# CHECKPOINT CALLBACK (SAVE EVERY EPOCH)
 # =====================================================
-history = model.fit(
-    train_generator,
-    validation_data=test_generator,
-    epochs=EPOCHS
+checkpoint_callback = ModelCheckpoint(
+    filepath=os.path.join(
+        CHECKPOINT_DIR, "emotion_epoch_{epoch:02d}.keras"
+    ),
+    save_weights_only=False,   # IMPORTANT (saves optimizer state)
+    save_freq="epoch",
+    verbose=1
 )
 
 # =====================================================
-# SAVE MODEL
+# TRAIN (RESUMABLE)
 # =====================================================
-MODEL_PATH = "emotion_module/emotion_model.h5"
-model.save(MODEL_PATH)
-print(f"[INFO] Emotion model saved at: {MODEL_PATH}")
+model.fit(
+    train_gen,
+    validation_data=val_gen,
+    epochs=TOTAL_EPOCHS,
+    initial_epoch=initial_epoch,
+    callbacks=[checkpoint_callback]
+)
+
+# =====================================================
+# SAVE FINAL MODEL
+# =====================================================
+FINAL_MODEL_PATH = "emotion_module/emotion_model_final.keras"
+os.makedirs("emotion_module", exist_ok=True)
+model.save(FINAL_MODEL_PATH)
+
+print(f"[INFO] FINAL MODEL SAVED AT {FINAL_MODEL_PATH}")

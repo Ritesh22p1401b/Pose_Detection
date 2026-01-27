@@ -13,7 +13,7 @@ class EmotionRecognizer:
         normalized = resized / 255.0
         reshaped = normalized.reshape(1, 48, 48, 1)
 
-        predictions = self.model.predict(reshaped, verbose=0)[0]
-        idx = np.argmax(predictions)
+        preds = self.model.predict(reshaped, verbose=0)[0]
+        idx = np.argmax(preds)
 
-        return EMOTION_LABELS[idx], float(predictions[idx])
+        return EMOTION_LABELS[idx], float(preds[idx])
