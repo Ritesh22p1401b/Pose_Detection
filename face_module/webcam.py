@@ -1,11 +1,18 @@
 import cv2
 import onnxruntime as ort
 from insightface.app import FaceAnalysis
-from face.face_matcher import cosine_similarity
+from face_module.face_matcher import cosine_similarity
+
+# 🔹 NEW (emotion adapter)
+from emotion_module.emotion_link.emotion_adapter import EmotionAdapter
+
 
 TRACKER_TTL = 60
 DETECT_INTERVAL = 5
 IOU_THRESHOLD = 0.3
+
+# 🔹 Emotion update frequency (does NOT affect face logic)
+EMOTION_UPDATE_INTERVAL = 10
 
 
 def create_tracker():
@@ -22,11 +29,16 @@ class VideoFinder:
         self.frame_count = 0
         self.trackers = []
 
+        # 🔹 NEW: emotion engine (isolated, safe)
+        self.emotion_engine = EmotionAdapter()
+
         providers = ort.get_available_providers()
         ctx_id = 0 if "CUDAExecutionProvider" in providers else -1
 
         self.app = FaceAnalysis(name="buffalo_l")
         self.app.prepare(ctx_id=ctx_id, det_size=(640, 640))
+
+    # ---------------- FACE MATCHING (UNCHANGED) ----------------
 
     def adaptive_threshold(self, face_size):
         if face_size < 55:
@@ -61,6 +73,8 @@ class VideoFinder:
         union = aw * ah + bw * bh - inter
         return inter / union
 
+    # ---------------- MAIN PIPELINE ----------------
+
     def detect_frame(self, frame):
         self.frame_count += 1
 
@@ -68,23 +82,41 @@ class VideoFinder:
         for t in self.trackers:
             ok, bbox = t["tracker"].update(frame)
             t["ttl"] -= 1
+
             if not ok or t["ttl"] <= 0:
                 continue
 
             x, y, w, h = map(int, bbox)
             t["bbox"] = (x, y, w, h)
 
+            # 🔹 EMOTION UPDATE (NON-INTRUSIVE)
+            t["emotion_counter"] += 1
+            if t["emotion_counter"] % EMOTION_UPDATE_INTERVAL == 0:
+                face_roi = frame[y:y + h, x:x + w]
+                if face_roi.size != 0:
+                    emotion, _ = self.emotion_engine.predict(face_roi)
+                    t["emotion"] = emotion
+
+            # 🔹 DRAW (face logic unchanged, label extended)
             color = (0, 255, 0) if t["matched"] else (0, 0, 255)
-            label = f"{t['name']} {t['score']:.2f}"
+            label = f"{t['name']} | {t['emotion']}"
 
             cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-            cv2.putText(frame, label, (x, y - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+            cv2.putText(
+                frame,
+                label,
+                (x, y - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                color,
+                2
+            )
 
             active.append(t)
 
         self.trackers = active
 
+        # 🔹 Detection interval logic UNCHANGED
         if self.frame_count % DETECT_INTERVAL != 0:
             return frame
 
@@ -99,20 +131,25 @@ class VideoFinder:
             score, name = self.best_match(face.embedding)
             matched = score >= threshold
 
-            if any(self.iou((x1, y1, w, h), t["bbox"]) > IOU_THRESHOLD
-                   for t in self.trackers):
+            if any(
+                self.iou((x1, y1, w, h), t["bbox"]) > IOU_THRESHOLD
+                for t in self.trackers
+            ):
                 continue
 
             tracker = create_tracker()
             tracker.init(frame, (x1, y1, w, h))
 
+            # 🔹 Tracker object EXTENDED (face logic preserved)
             self.trackers.append({
                 "tracker": tracker,
                 "bbox": (x1, y1, w, h),
                 "ttl": TRACKER_TTL,
                 "matched": matched,
                 "name": name if matched else "Unknown",
-                "score": score
+                "score": score,
+                "emotion": "Detecting...",
+                "emotion_counter": 0
             })
 
         return frame

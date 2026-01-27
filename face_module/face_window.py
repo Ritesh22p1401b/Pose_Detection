@@ -7,9 +7,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QPixmap, QImage
 from PySide6.QtCore import Qt, QTimer
 
-from face.webcam import VideoFinder
-from face.face_encoder import FaceEncoder
-from face.reference_manager import ReferenceManager
+from face_module.webcam import VideoFinder
+from face_module.face_encoder import FaceEncoder
+from face_module.reference_manager import ReferenceManager
 from camera.auto_camera import AutoCamera
 
 
