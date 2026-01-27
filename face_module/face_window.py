@@ -1,5 +1,21 @@
-import cv2
+# --------------------------------------------------
+# CRITICAL: FIX IMPORT PATHS
+# --------------------------------------------------
+import sys
 import os
+
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, ".."))
+
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+print("ACTIVE PYTHON:", sys.executable)
+
+# --------------------------------------------------
+# NORMAL IMPORTS
+# --------------------------------------------------
+import cv2
 from PySide6.QtWidgets import (
     QMainWindow, QLabel, QPushButton, QFileDialog,
     QVBoxLayout, QWidget, QMessageBox
@@ -7,15 +23,23 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QPixmap, QImage
 from PySide6.QtCore import Qt, QTimer
 
-from face_module.webcam import VideoFinder
-from face_module.face_encoder import FaceEncoder
-from face_module.reference_manager import ReferenceManager
+from webcam import VideoFinder
+from face_encoder import FaceEncoder
+from reference_manager import ReferenceManager
 from camera.auto_camera import AutoCamera
 
 
 VIDEO_WIDTH = 640
 VIDEO_HEIGHT = 480
-REFERENCE_DIR = "face/reference_faces"
+
+# --------------------------------------------------
+# ✅ FIXED: ABSOLUTE REFERENCE DIRECTORY
+# --------------------------------------------------
+REFERENCE_DIR = os.path.join(
+    PROJECT_ROOT,
+    "face_module",
+    "reference_faces"
+)
 
 
 def resize_with_aspect_ratio(frame, target_w, target_h):
@@ -58,11 +82,10 @@ class FaceWindow(QMainWindow):
         self.setCentralWidget(container)
 
         # ---------------- STATE ----------------
-        # ⚠ CUDA / CPU decision happens INSIDE these classes
         self.encoder = FaceEncoder()
         self.face_finder = None
-
         self.cap = None
+        self.camera = None
         self.quick_mode = False
         self.selected_persons = []
 
@@ -78,7 +101,7 @@ class FaceWindow(QMainWindow):
         self.stop_btn.clicked.connect(self.stop)
 
     # --------------------------------------------------
-    # QUICK VERIFY (TEMPORARY, NO SAVE)
+    # QUICK VERIFY
     # --------------------------------------------------
     def quick_verify(self):
         paths, _ = QFileDialog.getOpenFileNames(
@@ -93,11 +116,7 @@ class FaceWindow(QMainWindow):
             QMessageBox.critical(self, "Error", str(e))
             return
 
-        # VideoFinder decides CUDA / CPU internally
-        self.face_finder = VideoFinder({
-            "QuickPerson": embeddings
-        })
-
+        self.face_finder = VideoFinder({"QuickPerson": embeddings})
         self.quick_mode = True
         self.selected_persons = []
 
@@ -114,12 +133,7 @@ class FaceWindow(QMainWindow):
     def set_selected_persons(self, persons):
         self.selected_persons = persons
         self.quick_mode = False
-
-        QMessageBox.information(
-            self,
-            "Profiles Selected",
-            "Selected profiles:\n\n" + "\n".join(persons)
-        )
+        QMessageBox.information(self, "Profiles Selected", "\n".join(persons))
 
     def load_selected_profiles(self):
         if not self.selected_persons:
@@ -132,22 +146,13 @@ class FaceWindow(QMainWindow):
         )
 
         if not person_db:
-            QMessageBox.warning(
-                self,
-                "Error",
-                "No valid face images found for selected profiles"
-            )
+            QMessageBox.warning(self, "Error", "No valid face images found")
             return
 
-        # VideoFinder decides CUDA / CPU internally
         self.face_finder = VideoFinder(person_db)
         self.quick_mode = False
 
-        QMessageBox.information(
-            self,
-            "Loaded",
-            "Verification loaded for:\n\n" + "\n".join(person_db.keys())
-        )
+        QMessageBox.information(self, "Loaded", "\n".join(person_db.keys()))
 
     # --------------------------------------------------
     # VIDEO / LIVE
@@ -167,19 +172,6 @@ class FaceWindow(QMainWindow):
         self.cap = cv2.VideoCapture(path)
         self.timer.start(30)
 
-    # def start_live(self):
-    #     if not self.face_finder:
-    #         QMessageBox.warning(self, "Error", "Load profiles first")
-    #         return
-
-    #     self.stop()
-    #     self.cap = cv2.VideoCapture(0)
-
-    #     if not self.cap.isOpened():
-    #         QMessageBox.critical(self, "Error", "Cannot open webcam")
-    #         return
-
-    #     self.timer.start(30)
     def start_live(self):
         if not self.face_finder:
             QMessageBox.warning(self, "Error", "Load profiles first")
@@ -188,17 +180,13 @@ class FaceWindow(QMainWindow):
         self.stop()
 
         self.camera = AutoCamera()
-
         try:
             self.cap = self.camera.open()
         except RuntimeError as e:
             QMessageBox.critical(self, "Camera Error", str(e))
             return
 
-        print(f"[INFO] Live camera source: {self.camera.active_source}")
-
         self.timer.start(30)
-
 
     # --------------------------------------------------
     # FRAME LOOP
@@ -214,19 +202,15 @@ class FaceWindow(QMainWindow):
 
         frame = self.face_finder.detect_frame(frame)
 
-        if self.quick_mode:
-            label = "QUICK VERIFY"
-        else:
-            label = "PROFILES: " + ", ".join(self.selected_persons)
+        label = (
+            "QUICK VERIFY"
+            if self.quick_mode
+            else "PROFILES: " + ", ".join(self.selected_persons)
+        )
 
         cv2.putText(
-            frame,
-            label,
-            (10, 30),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (0, 255, 255),
-            2
+            frame, label, (10, 30),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2
         )
 
         frame = resize_with_aspect_ratio(frame, VIDEO_WIDTH, VIDEO_HEIGHT)
@@ -240,22 +224,29 @@ class FaceWindow(QMainWindow):
         )
 
     # --------------------------------------------------
-    # STOP (SAFE)
+    # STOP
     # --------------------------------------------------
-    # def stop(self):
-    #     self.timer.stop()
-
-    #     if self.cap:
-    #         self.cap.release()
-    #         self.cap = None
-
-    #     self.video_label.clear()
     def stop(self):
         self.timer.stop()
 
-        if hasattr(self, "camera") and self.camera:
+        if self.camera:
             self.camera.release()
             self.camera = None
 
-        self.cap = None
+        if self.cap:
+            self.cap.release()
+            self.cap = None
+
         self.video_label.clear()
+
+
+# --------------------------------------------------
+# ENTRY POINT
+# --------------------------------------------------
+if __name__ == "__main__":
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication(sys.argv)
+    win = FaceWindow()
+    win.show()
+    sys.exit(app.exec())

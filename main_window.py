@@ -1,8 +1,8 @@
+import os
+import subprocess
 from PySide6.QtWidgets import (
-    QMainWindow, QPushButton, QVBoxLayout, QWidget
+    QMainWindow, QPushButton, QVBoxLayout, QWidget, QMessageBox
 )
-from face_module.face_window import FaceWindow
-from gait.gui.gait_window import GaitWindow
 
 
 class MainWindow(QMainWindow):
@@ -12,30 +12,63 @@ class MainWindow(QMainWindow):
         self.resize(900, 650)
 
         self.face_btn = QPushButton("FACE Recognition")
-        self.gait_btn = QPushButton("GAIT Recognition")
 
         layout = QVBoxLayout()
         layout.addWidget(self.face_btn)
-        layout.addWidget(self.gait_btn)
 
         container = QWidget()
         container.setLayout(layout)
         self.setCentralWidget(container)
 
         self.face_btn.clicked.connect(self.open_face)
-        self.gait_btn.clicked.connect(self.open_gait)
-
-        self.face_window = None
-        self.gait_window = None
 
     def open_face(self):
-        if self.face_window is None:
-            self.face_window = FaceWindow()
-        self.face_window.show()
-        self.hide()
+        """
+        Launch Face GUI using FACE virtual environment
+        """
 
-    def open_gait(self):
-        if self.gait_window is None:
-            self.gait_window = GaitWindow()
-        self.gait_window.show()
-        self.hide()
+        # ---- PROJECT ROOT (pose/) ----
+        project_root = os.path.dirname(os.path.abspath(__file__))
+
+        # ---- FACE VENV PYTHON ----
+        face_python = os.path.join(
+            project_root,
+            "face_module",
+            "face",          # ← FACE venv name
+            "Scripts",
+            "python.exe"
+        )
+
+        # ---- FACE ENTRY FILE ----
+        face_entry = os.path.join(
+            project_root,
+            "face_module",
+            "face_window.py"
+        )
+
+        # ---- VALIDATION ----
+        if not os.path.isfile(face_python):
+            QMessageBox.critical(
+                self,
+                "Face Launch Error",
+                f"Face venv python not found:\n{face_python}"
+            )
+            return
+
+        if not os.path.isfile(face_entry):
+            QMessageBox.critical(
+                self,
+                "Face Launch Error",
+                f"face_window.py not found:\n{face_entry}"
+            )
+            return
+
+        # ---- LAUNCH FACE WINDOW ----
+        try:
+            subprocess.Popen(
+                [face_python, face_entry],
+                cwd=os.path.dirname(face_entry),
+                creationflags=subprocess.CREATE_NEW_CONSOLE
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Launch Failed", str(e))

@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QPixmap
 from PySide6.QtCore import Qt, Signal
 
-REFERENCE_DIR = "face/reference_faces"
+REFERENCE_DIR = "reference_faces"
 
 
 class ReferenceManager(QWidget):
