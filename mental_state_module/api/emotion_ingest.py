@@ -6,11 +6,11 @@ from mental_state_module.core.emotion_buffer import EmotionBuffer
 from mental_state_module.core.mental_analyzer import MentalAnalyzer
 
 DB_PATH = Path("mental_state_module/storage/database.sqlite")
-
 _BUFFERS = {}
 
 
 def _connect():
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     return sqlite3.connect(DB_PATH)
 
 
