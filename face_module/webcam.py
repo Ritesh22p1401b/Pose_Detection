@@ -23,19 +23,17 @@ from emotion_module.emotion_link.emotion_adapter import EmotionAdapter
 
 
 # --------------------------------------------------
-# CONFIG (ONLY EMOTION VALUES ADJUSTED)
+# CONFIG
 # --------------------------------------------------
 TRACKER_TTL = 60
 DETECT_INTERVAL = 5
 IOU_THRESHOLD = 0.3
 
-# 🔽 was 12 (too slow)
 EMOTION_UPDATE_INTERVAL = 3
-
-EMOTION_HISTORY_SIZE = 15
-
-# 🔽 was 48 (too strict for live video)
 MIN_FACE_SIZE = 32
+
+# store emotion in history only if confidence >= this
+EMOTION_STORE_CONF = 0.25
 
 
 # --------------------------------------------------
@@ -44,13 +42,10 @@ MIN_FACE_SIZE = 32
 def create_tracker():
     if hasattr(cv2, "TrackerCSRT_create"):
         return cv2.TrackerCSRT_create()
-
     if hasattr(cv2, "legacy") and hasattr(cv2.legacy, "TrackerCSRT_create"):
         return cv2.legacy.TrackerCSRT_create()
-
     if hasattr(cv2, "TrackerKCF_create"):
         return cv2.TrackerKCF_create()
-
     if hasattr(cv2, "legacy") and hasattr(cv2.legacy, "TrackerKCF_create"):
         return cv2.legacy.TrackerKCF_create()
 
@@ -60,36 +55,13 @@ def create_tracker():
 
 
 # --------------------------------------------------
-# ADAPTIVE CONFIDENCE (UNCHANGED)
-# --------------------------------------------------
-def adaptive_emotion_confidence(face_size):
-    if face_size >= 120:
-        return 0.45
-    elif face_size >= 100:
-        return 0.40
-    elif face_size >= 80:
-        return 0.35
-    elif face_size >= 60:
-        return 0.25
-    elif face_size >= MIN_FACE_SIZE:
-        return 0.20
-    else:
-        return None
-
-
-# --------------------------------------------------
-# TEMPORAL EMOTION AGGREGATION (UNCHANGED)
+# FINAL EMOTION SUMMARY (FOR ANALYTICS)
 # --------------------------------------------------
 def dominant_emotion(history):
     scores = defaultdict(float)
-
     for emo, weight in history:
         scores[emo] += weight
-
-    if not scores:
-        return "Unknown"
-
-    return max(scores, key=scores.get)
+    return max(scores, key=scores.get) if scores else "Unknown"
 
 
 # --------------------------------------------------
@@ -100,6 +72,9 @@ class VideoFinder:
         self.person_db = person_db
         self.frame_count = 0
         self.trackers = []
+
+        # 🔥 NEW: remember last known emotion per person
+        self.last_known_emotion = {}
 
         self.emotion_engine = EmotionAdapter()
 
@@ -162,12 +137,30 @@ class VideoFinder:
             t["ttl"] -= 1
 
             if not ok or t["ttl"] <= 0:
+                # 🔥 FINAL VIDEO SUMMARY (NO UNKNOWN OVERRIDE)
+                final_emotion = dominant_emotion(t["emotion_history"])
+
+                if final_emotion != "Unknown":
+                    # strongest signal
+                    self.last_known_emotion[t["name"]] = final_emotion
+
+                else:
+                    # fallback 1: previous final emotion
+                    final_emotion = self.last_known_emotion.get(t["name"])
+
+                    # fallback 2: last live expression
+                    if not final_emotion:
+                        final_emotion = self.last_known_expression.get(
+                            t["name"], "Unknown"
+                        )
+
+                print(f"[VIDEO SUMMARY] {t['name']} → {final_emotion}")
                 continue
 
             x, y, w, h = map(int, bbox)
             t["bbox"] = (x, y, w, h)
 
-            # -------- EMOTION (FIXED) --------
+            # -------- INSTANT EXPRESSION (NO HISTORY) --------
             t["emotion_counter"] += 1
 
             if t["emotion_counter"] % EMOTION_UPDATE_INTERVAL == 0:
@@ -177,17 +170,20 @@ class VideoFinder:
                     roi = frame[y:y+h, x:x+w]
 
                     if roi.size > 0:
-                        emotion, conf = self.emotion_engine.predict(roi)
+                        emotion_now, conf = self.emotion_engine.predict(roi)
 
-                        # 🔥 MAIN FIX: DO NOT BLOCK EMOTION
-                        if emotion != "Unknown":
-                            weight = max(conf, 0.10) * (face_size / 120.0)
-                            t["emotion_history"].append((emotion, weight))
-                            t["emotion_history"] = t["emotion_history"][-EMOTION_HISTORY_SIZE:]
-                            t["emotion"] = dominant_emotion(t["emotion_history"])
+                        # LIVE DISPLAY (instant expression)
+                        if emotion_now != "Unknown":
+                            t["expression_now"] = emotion_now
+
+                        # HISTORY ONLY FOR FINAL ANALYTICS
+                        if conf >= EMOTION_STORE_CONF and emotion_now != "Unknown":
+                            t["emotion_history"].append(
+                                (emotion_now, conf * (face_size / 120.0))
+                            )
 
             color = (0, 255, 0) if t["matched"] else (0, 0, 255)
-            label = f"{t['name']} | {t['emotion']}"
+            label = f"{t['name']} | {t['expression_now']}"
 
             cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
             cv2.putText(
@@ -224,7 +220,7 @@ class VideoFinder:
                 "ttl": TRACKER_TTL,
                 "matched": matched,
                 "name": name if matched else "Unknown",
-                "emotion": "Analyzing...",
+                "expression_now": "Analyzing...",
                 "emotion_history": [],
                 "emotion_counter": 0
             })
