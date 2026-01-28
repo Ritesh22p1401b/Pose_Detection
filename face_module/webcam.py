@@ -31,8 +31,6 @@ IOU_THRESHOLD = 0.3
 
 EMOTION_UPDATE_INTERVAL = 3
 MIN_FACE_SIZE = 32
-
-# store emotion in history only if confidence >= this
 EMOTION_STORE_CONF = 0.25
 
 
@@ -48,14 +46,9 @@ def create_tracker():
         return cv2.TrackerKCF_create()
     if hasattr(cv2, "legacy") and hasattr(cv2.legacy, "TrackerKCF_create"):
         return cv2.legacy.TrackerKCF_create()
-
-    raise RuntimeError(
-        "No OpenCV tracker found. Install opencv-contrib-python in face venv."
-    )
+    raise RuntimeError("opencv-contrib-python required")
 
 
-# --------------------------------------------------
-# FINAL EMOTION SUMMARY (FOR ANALYTICS)
 # --------------------------------------------------
 def dominant_emotion(history):
     scores = defaultdict(float)
@@ -73,8 +66,12 @@ class VideoFinder:
         self.frame_count = 0
         self.trackers = []
 
-        # 🔥 NEW: remember last known emotion per person
+        # emotion memory
         self.last_known_emotion = {}
+        self.last_known_expression = {}
+
+        # 🔒 global emotion toggle (future-safe)
+        self.enable_emotion = True
 
         self.emotion_engine = EmotionAdapter()
 
@@ -98,61 +95,57 @@ class VideoFinder:
             return 0.45
 
     def best_match(self, embedding):
-        best_score = 0.0
-        best_name = None
-
+        best_score, best_name = 0.0, None
         for name, ref in self.person_db.items():
             score = cosine_similarity(embedding, ref)
             if score > best_score:
-                best_score = score
-                best_name = name
-
+                best_score, best_name = score, name
         return best_score, best_name
 
     def iou(self, a, b):
         ax, ay, aw, ah = a
         bx, by, bw, bh = b
-
         ix1, iy1 = max(ax, bx), max(ay, by)
         ix2, iy2 = min(ax + aw, bx + bw), min(ay + ah, by + bh)
-
         if ix2 <= ix1 or iy2 <= iy1:
             return 0.0
-
         inter = (ix2 - ix1) * (iy2 - iy1)
         union = aw * ah + bw * bh - inter
-
         return inter / union
 
-    # --------------------------------------------------
-    # MAIN VIDEO LOOP
     # --------------------------------------------------
     def detect_frame(self, frame):
         self.frame_count += 1
         active = []
 
-        # -------- TRACK EXISTING --------
+        # --------------------------------------------------
+        # 🔒 EMOTION DISABLE LOGIC (SAFE & ISOLATED)
+        # --------------------------------------------------
+        active_known_profiles = {
+            t["name"] for t in self.trackers
+            if t["matched"] and t["name"] != "Unknown"
+        }
+
+        emotion_allowed = (
+            self.enable_emotion and
+            len(active_known_profiles) == 1
+        )
+
+        # --------------------------------------------------
         for t in self.trackers:
             ok, bbox = t["tracker"].update(frame)
             t["ttl"] -= 1
 
             if not ok or t["ttl"] <= 0:
-                # 🔥 FINAL VIDEO SUMMARY (NO UNKNOWN OVERRIDE)
                 final_emotion = dominant_emotion(t["emotion_history"])
 
                 if final_emotion != "Unknown":
-                    # strongest signal
                     self.last_known_emotion[t["name"]] = final_emotion
-
                 else:
-                    # fallback 1: previous final emotion
-                    final_emotion = self.last_known_emotion.get(t["name"])
-
-                    # fallback 2: last live expression
-                    if not final_emotion:
-                        final_emotion = self.last_known_expression.get(
-                            t["name"], "Unknown"
-                        )
+                    final_emotion = self.last_known_emotion.get(
+                        t["name"],
+                        self.last_known_expression.get(t["name"], "Unknown")
+                    )
 
                 print(f"[VIDEO SUMMARY] {t['name']} → {final_emotion}")
                 continue
@@ -160,56 +153,54 @@ class VideoFinder:
             x, y, w, h = map(int, bbox)
             t["bbox"] = (x, y, w, h)
 
-            # -------- INSTANT EXPRESSION (NO HISTORY) --------
+            # --------------------------------------------------
+            # EMOTION (ONLY IF SINGLE PROFILE)
+            # --------------------------------------------------
             t["emotion_counter"] += 1
 
-            if t["emotion_counter"] % EMOTION_UPDATE_INTERVAL == 0:
-                face_size = min(w, h)
-
-                if face_size >= MIN_FACE_SIZE:
+            if emotion_allowed and t["emotion_counter"] % EMOTION_UPDATE_INTERVAL == 0:
+                if min(w, h) >= MIN_FACE_SIZE:
                     roi = frame[y:y+h, x:x+w]
-
                     if roi.size > 0:
-                        emotion_now, conf = self.emotion_engine.predict(roi)
+                        emo, conf = self.emotion_engine.predict(roi)
 
-                        # LIVE DISPLAY (instant expression)
-                        if emotion_now != "Unknown":
-                            t["expression_now"] = emotion_now
+                        if emo != "Unknown":
+                            t["expression_now"] = emo
+                            self.last_known_expression[t["name"]] = emo
 
-                        # HISTORY ONLY FOR FINAL ANALYTICS
-                        if conf >= EMOTION_STORE_CONF and emotion_now != "Unknown":
+                        if conf >= EMOTION_STORE_CONF:
                             t["emotion_history"].append(
-                                (emotion_now, conf * (face_size / 120.0))
+                                (emo, conf * (min(w, h) / 120.0))
                             )
+
+            if not emotion_allowed:
+                t["expression_now"] = "diabled"
 
             color = (0, 255, 0) if t["matched"] else (0, 0, 255)
             label = f"{t['name']} | {t['expression_now']}"
 
             cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
-            cv2.putText(
-                frame, label, (x, y - 10),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2
-            )
+            cv2.putText(frame, label, (x, y-10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
             active.append(t)
 
         self.trackers = active
 
-        # -------- DETECT NEW FACES --------
+        # --------------------------------------------------
         if self.frame_count % DETECT_INTERVAL != 0:
             return frame
 
         for face in self.app.get(frame):
             x1, y1, x2, y2 = map(int, face.bbox)
             w, h = x2 - x1, y2 - y1
-            size = min(w, h)
 
             if any(self.iou((x1, y1, w, h), t["bbox"]) > IOU_THRESHOLD
                    for t in self.trackers):
                 continue
 
             score, name = self.best_match(face.embedding)
-            matched = score >= self.adaptive_threshold(size)
+            matched = score >= self.adaptive_threshold(min(w, h))
 
             tracker = create_tracker()
             tracker.init(frame, (x1, y1, w, h))
