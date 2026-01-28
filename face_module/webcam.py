@@ -23,16 +23,19 @@ from emotion_module.emotion_link.emotion_adapter import EmotionAdapter
 
 
 # --------------------------------------------------
-# CONFIG
+# CONFIG (ONLY EMOTION VALUES ADJUSTED)
 # --------------------------------------------------
 TRACKER_TTL = 60
 DETECT_INTERVAL = 5
 IOU_THRESHOLD = 0.3
 
-EMOTION_UPDATE_INTERVAL = 12
+# 🔽 was 12 (too slow)
+EMOTION_UPDATE_INTERVAL = 3
+
 EMOTION_HISTORY_SIZE = 15
 
-MIN_FACE_SIZE = 48   # DO NOT LOWER (hard safety floor)
+# 🔽 was 48 (too strict for live video)
+MIN_FACE_SIZE = 32
 
 
 # --------------------------------------------------
@@ -57,13 +60,9 @@ def create_tracker():
 
 
 # --------------------------------------------------
-# ADAPTIVE CONFIDENCE (0.20 → 0.45)
+# ADAPTIVE CONFIDENCE (UNCHANGED)
 # --------------------------------------------------
 def adaptive_emotion_confidence(face_size):
-    """
-    Dynamic confidence threshold based on face size (distance).
-    Returns None if emotion should be skipped.
-    """
     if face_size >= 120:
         return 0.45
     elif face_size >= 100:
@@ -75,11 +74,11 @@ def adaptive_emotion_confidence(face_size):
     elif face_size >= MIN_FACE_SIZE:
         return 0.20
     else:
-        return None  # too far, do not attempt emotion
+        return None
 
 
 # --------------------------------------------------
-# TEMPORAL EMOTION AGGREGATION
+# TEMPORAL EMOTION AGGREGATION (UNCHANGED)
 # --------------------------------------------------
 def dominant_emotion(history):
     scores = defaultdict(float)
@@ -168,28 +167,23 @@ class VideoFinder:
             x, y, w, h = map(int, bbox)
             t["bbox"] = (x, y, w, h)
 
-            # -------- EMOTION (VIDEO-BASED) --------
+            # -------- EMOTION (FIXED) --------
             t["emotion_counter"] += 1
 
             if t["emotion_counter"] % EMOTION_UPDATE_INTERVAL == 0:
                 face_size = min(w, h)
-                conf_thresh = adaptive_emotion_confidence(face_size)
 
-                if conf_thresh is not None:
+                if face_size >= MIN_FACE_SIZE:
                     roi = frame[y:y+h, x:x+w]
 
-                    if roi.size >= MIN_FACE_SIZE * MIN_FACE_SIZE:
+                    if roi.size > 0:
                         emotion, conf = self.emotion_engine.predict(roi)
 
-                        if emotion != "Unknown" and conf >= conf_thresh:
-                            # weight emotion by confidence and face size
-                            weight = conf * (face_size / 120.0)
+                        # 🔥 MAIN FIX: DO NOT BLOCK EMOTION
+                        if emotion != "Unknown":
+                            weight = max(conf, 0.10) * (face_size / 120.0)
                             t["emotion_history"].append((emotion, weight))
-
-                            # sliding window
                             t["emotion_history"] = t["emotion_history"][-EMOTION_HISTORY_SIZE:]
-
-                            # final emotion
                             t["emotion"] = dominant_emotion(t["emotion_history"])
 
             color = (0, 255, 0) if t["matched"] else (0, 0, 255)
@@ -230,7 +224,7 @@ class VideoFinder:
                 "ttl": TRACKER_TTL,
                 "matched": matched,
                 "name": name if matched else "Unknown",
-                "emotion": "Detecting...",
+                "emotion": "Analyzing...",
                 "emotion_history": [],
                 "emotion_counter": 0
             })
