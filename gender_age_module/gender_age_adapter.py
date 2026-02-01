@@ -17,24 +17,11 @@ class GenderAgeAdapter:
             )
 
         print("[GenderAgeAdapter] Loading model...")
-        self.model = tf.keras.models.load_model(model_path)
+        self.model = tf.keras.models.load_model(
+            model_path,
+            compile=False   # 🔴 CRITICAL FIX FOR KERAS 3.x
+        )
         print("[GenderAgeAdapter] Model loaded")
-
-        # Log output structure once (debug-safe)
-        try:
-            outputs = self.model.output
-            if isinstance(outputs, list):
-                print(
-                    "[GenderAgeAdapter] Model outputs:",
-                    [o.shape for o in outputs]
-                )
-            else:
-                print(
-                    "[GenderAgeAdapter] Model output shape:",
-                    outputs.shape
-                )
-        except Exception:
-            pass
 
         self.gender_map = {0: "Male", 1: "Female"}
 
@@ -57,11 +44,10 @@ class GenderAgeAdapter:
 
             preds = self.model.predict(inp, verbose=0)
 
-            # ---- multi-output model ----
+            # Multi-output model
             if isinstance(preds, (list, tuple)) and len(preds) == 2:
                 age_pred, gender_pred = preds
             else:
-                # ---- single-output model ----
                 age_pred = preds[:, 0:1]
                 gender_pred = preds[:, 1:]
 

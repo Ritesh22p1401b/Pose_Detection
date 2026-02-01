@@ -1,27 +1,22 @@
 import sys
 import os
+
+# --------------------------------------------------
+# ABSOLUTE PATH FIX (REQUIRED)
+# --------------------------------------------------
+WORKER_DIR = os.path.dirname(os.path.abspath(__file__))
+if WORKER_DIR not in sys.path:
+    sys.path.insert(0, WORKER_DIR)
+
+# --------------------------------------------------
 import pickle
 import struct
 import traceback
 import tensorflow as tf
+from gender_age_adapter import GenderAgeAdapter
 
 # --------------------------------------------------
-# 🔴 ABSOLUTE, BULLETPROOF PATH FIX
-# --------------------------------------------------
-WORKER_FILE = os.path.abspath(__file__)
-WORKER_DIR = os.path.dirname(WORKER_FILE)
-MODULE_ROOT = os.path.abspath(os.path.join(WORKER_DIR))
-
-# Add BOTH paths explicitly
-for p in (WORKER_DIR, MODULE_ROOT):
-    if p not in sys.path:
-        sys.path.insert(0, p)
-
-# DEBUG (optional, can remove later)
-print("[GenderAgeWorker] sys.path =", sys.path, file=sys.stderr)
-
-# --------------------------------------------------
-# CPU / GPU LOGGING
+# CPU / GPU CONFIG
 # --------------------------------------------------
 gpus = tf.config.list_physical_devices("GPU")
 if gpus:
@@ -36,12 +31,10 @@ else:
 # --------------------------------------------------
 try:
     print("[GenderAgeWorker] Loading model...", file=sys.stderr)
-    from gender_age_adapter import GenderAgeAdapter
     engine = GenderAgeAdapter()
     print("[GenderAgeWorker] Model loaded successfully", file=sys.stderr)
 except Exception:
     traceback.print_exc(file=sys.stderr)
-    sys.stderr.flush()
     sys.exit(1)
 
 # --------------------------------------------------
@@ -56,9 +49,8 @@ def read_exact(n):
         data += chunk
     return data
 
-
 # --------------------------------------------------
-# IPC LOOP (stdout = BINARY ONLY)
+# IPC LOOP
 # --------------------------------------------------
 while True:
     try:

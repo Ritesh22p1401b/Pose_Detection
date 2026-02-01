@@ -32,7 +32,7 @@ class GenderAgeClient:
 
         if not os.path.isfile(python_exe):
             raise RuntimeError(
-                "[GenderAgeClient ERROR] Gender-age venv python not found"
+                "[GenderAgeClient ERROR] venv python.exe not found"
             )
 
         if not os.path.isfile(worker_script):
@@ -44,11 +44,10 @@ class GenderAgeClient:
             [python_exe, worker_script],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=None,   # logs visible
+            stderr=None,
             bufsize=0
         )
 
-        # Allow TensorFlow to load
         time.sleep(2.0)
 
         if self.proc.poll() is not None:
@@ -56,7 +55,7 @@ class GenderAgeClient:
                 "[GenderAgeClient ERROR] Worker crashed on startup"
             )
 
-        print("[GenderAgeWorker] Gender & Age model ready")
+        print("[GenderAgeClient] Gender & Age worker ready")
 
     # --------------------------------------------------
     def _worker_alive(self):
