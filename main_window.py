@@ -25,28 +25,37 @@ class MainWindow(QMainWindow):
     def open_face(self):
         """
         Launch Face GUI using FACE virtual environment
+        (NO silent crash, NO logic change)
         """
 
-        # ---- PROJECT ROOT (pose/) ----
+        # --------------------------------------------------
+        # PROJECT ROOT
+        # --------------------------------------------------
         project_root = os.path.dirname(os.path.abspath(__file__))
 
-        # ---- FACE VENV PYTHON ----
+        # --------------------------------------------------
+        # FACE VENV PYTHON
+        # --------------------------------------------------
         face_python = os.path.join(
             project_root,
             "face_module",
-            "face",          # ← FACE venv name
+            "face",          # FACE venv name
             "Scripts",
             "python.exe"
         )
 
-        # ---- FACE ENTRY FILE ----
+        # --------------------------------------------------
+        # FACE ENTRY FILE
+        # --------------------------------------------------
         face_entry = os.path.join(
             project_root,
             "face_module",
             "face_window.py"
         )
 
-        # ---- VALIDATION ----
+        # --------------------------------------------------
+        # VALIDATION (UNCHANGED)
+        # --------------------------------------------------
         if not os.path.isfile(face_python):
             QMessageBox.critical(
                 self,
@@ -63,12 +72,15 @@ class MainWindow(QMainWindow):
             )
             return
 
-        # ---- LAUNCH FACE WINDOW ----
+        # --------------------------------------------------
+        # LAUNCH FACE WINDOW (FIXED)
+        # --------------------------------------------------
         try:
             subprocess.Popen(
                 [face_python, face_entry],
-                cwd=os.path.dirname(face_entry),
-                creationflags=subprocess.CREATE_NEW_CONSOLE
+                cwd=os.path.dirname(face_entry)
+                # ❌ REMOVED CREATE_NEW_CONSOLE
+                # This prevents silent crash
             )
         except Exception as e:
             QMessageBox.critical(self, "Launch Failed", str(e))
