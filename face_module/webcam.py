@@ -34,10 +34,9 @@ EMOTION_UPDATE_INTERVAL = 3
 MIN_FACE_SIZE = 32
 EMOTION_STORE_CONF = 0.25
 
-GENDER_AGE_MIN_FACE = 80   # ✅ REQUIRED FOR STABLE SINGLE-FRAME PREDICTION
+GENDER_AGE_MIN_FACE = 80
 
 
-# --------------------------------------------------
 def create_tracker():
     if hasattr(cv2, "TrackerCSRT_create"):
         return cv2.TrackerCSRT_create()
@@ -57,24 +56,23 @@ def dominant_emotion(history):
     return max(scores, key=scores.get) if scores else "Unknown"
 
 
-# --------------------------------------------------
 class VideoFinder:
     def __init__(self, person_db):
         self.person_db = person_db
+        self.quick_verify_mode = (
+            len(person_db) == 1 and "QuickPerson" in person_db
+        )
+
         self.frame_count = 0
         self.trackers = []
 
         self.last_known_emotion = {}
-        self.last_known_expression = defaultdict(lambda: "Unknown")  # ✅ SAFE
+        self.last_known_expression = defaultdict(lambda: "Unknown")
         self.last_known_gender_age = {}
 
         self.enable_emotion = True
-
         self.emotion_engine = EmotionAdapter()
 
-        # --------------------------------------------------
-        # SAFE Gender/Age initialization
-        # --------------------------------------------------
         try:
             self.gender_age_engine = GenderAgeClient()
         except Exception as e:
@@ -87,7 +85,6 @@ class VideoFinder:
         self.app = FaceAnalysis(name="buffalo_l")
         self.app.prepare(ctx_id=ctx_id, det_size=(640, 640))
 
-    # --------------------------------------------------
     def adaptive_threshold(self, face_size):
         if face_size < 55:
             return 0.19
@@ -119,7 +116,6 @@ class VideoFinder:
         union = aw * ah + bw * bh - inter
         return inter / union
 
-    # --------------------------------------------------
     def detect_frame(self, frame):
         self.frame_count += 1
         active = []
@@ -141,41 +137,32 @@ class VideoFinder:
             if not ok or t["ttl"] <= 0:
                 final_emotion = dominant_emotion(t["emotion_history"])
                 if final_emotion != "Unknown":
-                    self.last_known_emotion[t["name"]] = final_emotion
-                    self.last_known_expression[t["name"]] = final_emotion  # ✅ FIX
+                    self.last_known_expression[t["name"]] = final_emotion
                 continue
 
             x, y, w, h = map(int, bbox)
             t["bbox"] = (x, y, w, h)
 
-            # ---------------- EMOTION ----------------
             t["emotion_counter"] += 1
             if emotion_allowed and t["emotion_counter"] % EMOTION_UPDATE_INTERVAL == 0:
                 if min(w, h) >= MIN_FACE_SIZE:
                     roi = frame[y:y+h, x:x+w]
-                    if roi.size > 0:
-                        emo, conf = self.emotion_engine.predict(roi)
-                        if emo != "Unknown":
-                            t["expression_now"] = emo
-                        if conf >= EMOTION_STORE_CONF:
-                            t["emotion_history"].append((emo, conf))
+                    emo, conf = self.emotion_engine.predict(roi)
+                    if emo != "Unknown":
+                        t["expression_now"] = emo
+                    if conf >= EMOTION_STORE_CONF:
+                        t["emotion_history"].append((emo, conf))
 
-            # ---------------- GENDER / AGE (ONE FRAME ONLY) ----------------
             if (
                 self.gender_age_engine
                 and t["matched"]
                 and t["name"] not in self.last_known_gender_age
-                and min(w, h) >= GENDER_AGE_MIN_FACE  # ✅ CRITICAL FIX
+                and min(w, h) >= GENDER_AGE_MIN_FACE
             ):
                 age, gender = self.gender_age_engine.predict(
                     frame[y:y+h, x:x+w]
                 )
-
-                if age is not None:
-                    self.last_known_gender_age[t["name"]] = (age, gender)
-                else:
-                    # store once to avoid silent permanent failure
-                    self.last_known_gender_age[t["name"]] = (None, "Unknown")
+                self.last_known_gender_age[t["name"]] = (age, gender)
 
             if t["matched"]:
                 label = f"{t['name']} | {t['expression_now']}"
@@ -189,7 +176,6 @@ class VideoFinder:
 
         self.trackers = active
 
-        # ---------------- FACE DETECTION ----------------
         if self.frame_count % DETECT_INTERVAL == 0:
             for face in self.app.get(frame):
                 x1, y1, x2, y2 = map(int, face.bbox)
@@ -200,7 +186,12 @@ class VideoFinder:
                     continue
 
                 score, name = self.best_match(face.embedding)
-                matched = score >= self.adaptive_threshold(min(w, h))
+
+                if self.quick_verify_mode:
+                    matched = True
+                    name = "QuickPerson"
+                else:
+                    matched = score >= self.adaptive_threshold(min(w, h))
 
                 tracker = create_tracker()
                 tracker.init(frame, (x1, y1, w, h))
@@ -216,7 +207,6 @@ class VideoFinder:
                     "emotion_counter": 0
                 })
 
-        # ---------------- BOTTOM LEFT GENDER / AGE ----------------
         y_pos = frame.shape[0] - 20
         for name, (age, gender) in self.last_known_gender_age.items():
             age_txt = "--" if age is None else str(age)
