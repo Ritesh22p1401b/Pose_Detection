@@ -1,6 +1,7 @@
 import sys
 import os
-from collections import defaultdict
+from collections import defaultdict, deque
+import statistics
 
 # --------------------------------------------------
 # ADD PROJECT ROOT TO sys.path
@@ -22,9 +23,8 @@ from face_matcher import cosine_similarity
 from emotion_module.emotion_link.emotion_adapter import EmotionAdapter
 from gender_age_module.gender_age_client import GenderAgeClient
 
-
 # --------------------------------------------------
-# CONFIG (UNCHANGED)
+# CONFIG
 # --------------------------------------------------
 TRACKER_TTL = 60
 DETECT_INTERVAL = 5
@@ -34,9 +34,10 @@ EMOTION_UPDATE_INTERVAL = 3
 MIN_FACE_SIZE = 32
 EMOTION_STORE_CONF = 0.25
 
-GENDER_AGE_MIN_FACE = 80
+GENDER_AGE_MIN_FACE = 80     # minimum face size for age/gender
+AGE_FRAMES_REQUIRED = 3     # frames needed for stable age
 
-
+# --------------------------------------------------
 def create_tracker():
     if hasattr(cv2, "TrackerCSRT_create"):
         return cv2.TrackerCSRT_create()
@@ -56,6 +57,16 @@ def dominant_emotion(history):
     return max(scores, key=scores.get) if scores else "Unknown"
 
 
+def approximate_age(age: int) -> str:
+    """
+    Convert raw age into human-friendly approximate age.
+    Example: 26 -> ~30
+    """
+    nearest = round(age / 10) * 10
+    return f"~{nearest}"
+
+
+# --------------------------------------------------
 class VideoFinder:
     def __init__(self, person_db):
         self.person_db = person_db
@@ -66,9 +77,11 @@ class VideoFinder:
         self.frame_count = 0
         self.trackers = []
 
-        self.last_known_emotion = {}
         self.last_known_expression = defaultdict(lambda: "Unknown")
         self.last_known_gender_age = {}
+
+        # Age buffers for stability
+        self.age_buffers = defaultdict(lambda: deque(maxlen=AGE_FRAMES_REQUIRED))
 
         self.enable_emotion = True
         self.emotion_engine = EmotionAdapter()
@@ -85,6 +98,7 @@ class VideoFinder:
         self.app = FaceAnalysis(name="buffalo_l")
         self.app.prepare(ctx_id=ctx_id, det_size=(640, 640))
 
+    # --------------------------------------------------
     def adaptive_threshold(self, face_size):
         if face_size < 55:
             return 0.19
@@ -116,6 +130,7 @@ class VideoFinder:
         union = aw * ah + bw * bh - inter
         return inter / union
 
+    # --------------------------------------------------
     def detect_frame(self, frame):
         self.frame_count += 1
         active = []
@@ -143,6 +158,7 @@ class VideoFinder:
             x, y, w, h = map(int, bbox)
             t["bbox"] = (x, y, w, h)
 
+            # ---------------- EMOTION ----------------
             t["emotion_counter"] += 1
             if emotion_allowed and t["emotion_counter"] % EMOTION_UPDATE_INTERVAL == 0:
                 if min(w, h) >= MIN_FACE_SIZE:
@@ -153,17 +169,31 @@ class VideoFinder:
                     if conf >= EMOTION_STORE_CONF:
                         t["emotion_history"].append((emo, conf))
 
+            # ---------------- GENDER & AGE ----------------
             if (
                 self.gender_age_engine
                 and t["matched"]
-                and t["name"] not in self.last_known_gender_age
                 and min(w, h) >= GENDER_AGE_MIN_FACE
             ):
                 age, gender = self.gender_age_engine.predict(
                     frame[y:y+h, x:x+w]
                 )
-                self.last_known_gender_age[t["name"]] = (age, gender)
 
+                # Store gender once
+                if t["name"] not in self.last_known_gender_age:
+                    self.last_known_gender_age[t["name"]] = (None, gender)
+
+                # Collect age frames
+                if age is not None and age > 0:
+                    self.age_buffers[t["name"]].append(int(age))
+
+                # Stable age → median → approximate
+                if len(self.age_buffers[t["name"]]) >= AGE_FRAMES_REQUIRED:
+                    median_age = int(statistics.median(self.age_buffers[t["name"]]))
+                    approx = approximate_age(median_age)
+                    self.last_known_gender_age[t["name"]] = (approx, gender)
+
+            # ---------------- DRAW BOX ----------------
             if t["matched"]:
                 label = f"{t['name']} | {t['expression_now']}"
                 cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
@@ -176,6 +206,7 @@ class VideoFinder:
 
         self.trackers = active
 
+        # ---------------- FACE DETECTION ----------------
         if self.frame_count % DETECT_INTERVAL == 0:
             for face in self.app.get(frame):
                 x1, y1, x2, y2 = map(int, face.bbox)
@@ -207,9 +238,10 @@ class VideoFinder:
                     "emotion_counter": 0
                 })
 
+        # ---------------- DISPLAY AGE / GENDER ----------------
         y_pos = frame.shape[0] - 20
         for name, (age, gender) in self.last_known_gender_age.items():
-            age_txt = "--" if age is None else str(age)
+            age_txt = age if age is not None else "--"
             cv2.putText(
                 frame,
                 f"{name}: {gender}, {age_txt}",

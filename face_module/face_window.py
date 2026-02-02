@@ -13,10 +13,6 @@ sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="ignor
 # ------------------------------
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
-
-
-import sys
-import os
 import cv2
 import numpy as np
 from PySide6.QtWidgets import (
@@ -48,13 +44,11 @@ class FaceWindow(QMainWindow):
         self.setWindowTitle("Face Verification System")
         self.setFixedSize(VIDEO_WIDTH, VIDEO_HEIGHT + 260)
 
-        # ---------------- VIDEO ----------------
         self.video_label = QLabel()
         self.video_label.setFixedSize(VIDEO_WIDTH, VIDEO_HEIGHT)
         self.video_label.setAlignment(Qt.AlignCenter)
         self.video_label.setStyleSheet("background-color: black;")
 
-        # ---------------- BUTTONS ----------------
         self.manage_btn = QPushButton("Manage Reference Faces")
         self.load_btn = QPushButton("Load Selected Profiles")
         self.quick_btn = QPushButton("Quick Verify (No Save)")
@@ -75,7 +69,6 @@ class FaceWindow(QMainWindow):
         container.setLayout(layout)
         self.setCentralWidget(container)
 
-        # ---------------- STATE ----------------
         self.encoder = FaceEncoder()
         self.face_finder = None
 
@@ -88,7 +81,6 @@ class FaceWindow(QMainWindow):
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_frame)
 
-        # ---------------- SIGNALS ----------------
         self.manage_btn.clicked.connect(self.open_reference_manager)
         self.load_btn.clicked.connect(self.load_selected_profiles)
         self.quick_btn.clicked.connect(self.quick_verify)
@@ -96,35 +88,6 @@ class FaceWindow(QMainWindow):
         self.live_btn.clicked.connect(self.start_live)
         self.stop_btn.clicked.connect(self.stop)
 
-    # --------------------------------------------------
-    # QUICK VERIFY (FIXED & CORRECT)
-    # --------------------------------------------------
-    def quick_verify(self):
-        paths, _ = QFileDialog.getOpenFileNames(
-            self, "Quick Verify", "", "Images (*.jpg *.png)"
-        )
-        if not paths:
-            return
-
-        try:
-            # encode_images already returns ONE (512,) embedding
-            ref = self.encoder.encode_images(paths)
-        except Exception as e:
-            QMessageBox.critical(self, "Error", str(e))
-            return
-
-        # Normalize once (safe)
-        ref = ref / np.linalg.norm(ref)
-
-        self.face_finder = VideoFinder({"QuickPerson": ref})
-        self.quick_mode = True
-        self.selected_persons = []
-
-        QMessageBox.information(self, "Ready", "Quick Verify enabled")
-
-    # --------------------------------------------------
-    # REFERENCE MANAGER
-    # --------------------------------------------------
     def open_reference_manager(self):
         self.ref_manager = ReferenceManager()
         self.ref_manager.persons_selected.connect(self.set_selected_persons)
@@ -153,9 +116,30 @@ class FaceWindow(QMainWindow):
         self.face_finder = VideoFinder(person_db)
         self.quick_mode = False
 
-    # --------------------------------------------------
-    # VIDEO / LIVE
-    # --------------------------------------------------
+        # ✅ FIXED: show selected profile names instead of count
+        QMessageBox.information(
+            self,
+            "Profiles Loaded",
+            "The following profile(s) are loaded for verification:\n\n"
+            + ", ".join(self.selected_persons)
+        )
+
+    def quick_verify(self):
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Quick Verify", "", "Images (*.jpg *.png)"
+        )
+        if not paths:
+            return
+
+        ref = self.encoder.encode_images(paths)
+        ref = ref / np.linalg.norm(ref)
+
+        self.face_finder = VideoFinder({"QuickPerson": ref})
+        self.quick_mode = True
+        self.selected_persons = []
+
+        QMessageBox.information(self, "Ready", "Quick verification loaded successfully.")
+
     def verify_video(self):
         if not self.face_finder:
             QMessageBox.warning(self, "Error", "Load profiles first")
@@ -181,9 +165,6 @@ class FaceWindow(QMainWindow):
         self.cap = None
         self.timer.start(30)
 
-    # --------------------------------------------------
-    # FRAME LOOP
-    # --------------------------------------------------
     def update_frame(self):
         if self.camera:
             frame = self.camera.read()
@@ -198,14 +179,8 @@ class FaceWindow(QMainWindow):
             return
 
         frame = self.face_finder.detect_frame(frame)
-
-        label = "QUICK VERIFY" if self.quick_mode else "PROFILES"
-        cv2.putText(
-            frame, label, (10, 30),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2
-        )
-
         frame = resize_with_aspect_ratio(frame, VIDEO_WIDTH, VIDEO_HEIGHT)
+
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
 
@@ -215,23 +190,20 @@ class FaceWindow(QMainWindow):
             )
         )
 
-    # --------------------------------------------------
-    # STOP
-    # --------------------------------------------------
     def stop(self):
         self.timer.stop()
+
         if self.camera:
             self.camera.release()
             self.camera = None
+
         if self.cap:
             self.cap.release()
             self.cap = None
+
         self.video_label.clear()
 
 
-# --------------------------------------------------
-# ENTRY POINT
-# --------------------------------------------------
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
 

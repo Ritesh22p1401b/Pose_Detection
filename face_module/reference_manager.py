@@ -68,7 +68,17 @@ class ReferenceManager(QWidget):
             QMessageBox.warning(self, "Error", "No profile selected")
             return
 
-        self.persons_selected.emit([i.text() for i in items])
+        selected = [i.text() for i in items]
+
+        # ✅ REQUIRED: dialog with selected profile names
+        QMessageBox.information(
+            self,
+            "Selected Profiles",
+            "The following profile(s) are selected for verification:\n\n"
+            + ", ".join(selected)
+        )
+
+        self.persons_selected.emit(selected)
         self.close()
 
     def create_person(self):
@@ -119,8 +129,10 @@ class ReferenceManager(QWidget):
             return
 
         person_dir = os.path.join(REFERENCE_DIR, item.text())
-        images = [f for f in os.listdir(person_dir)
-                  if f.lower().endswith((".jpg", ".png"))]
+        images = [
+            f for f in os.listdir(person_dir)
+            if f.lower().endswith((".jpg", ".png"))
+        ]
 
         if not images:
             self.preview.setText("No images")
