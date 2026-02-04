@@ -14,9 +14,6 @@ sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="ignor
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 
-
-
-
 import sys
 from PySide6.QtWidgets import QApplication
 from main_window import MainWindow
