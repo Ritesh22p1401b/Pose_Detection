@@ -1,20 +1,31 @@
+import os
 import pandas as pd
 import numpy as np
 from torch.utils.data import Dataset
 from PIL import Image
+
 from utils.age_bins import age_to_class
 
 class AgeDataset(Dataset):
-    def __init__(self, csv_file, transform=None):
+    def __init__(self, csv_file, images_root, transform=None):
+        """
+        csv_file    : datasets/imdb_train_new_1024.csv
+        images_root : datasets/imdb-clean-1024
+        """
         self.data = pd.read_csv(csv_file)
+        self.images_root = images_root
         self.transform = transform
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
-        img_path = self.data.iloc[idx]["path"]
-        age = int(self.data.iloc[idx]["age"])
+        row = self.data.iloc[idx]
+
+        # CSV has: 00/dfd.jpg
+        img_path = os.path.join(self.images_root, row["path"])
+        age = int(row["age"])
+
         label = age_to_class(age)
 
         image = Image.open(img_path).convert("RGB")

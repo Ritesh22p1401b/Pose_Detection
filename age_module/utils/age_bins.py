@@ -11,4 +11,4 @@ def age_to_class(age: int):
     for i, (low, high) in enumerate(AGE_BINS):
         if low <= age <= high:
             return i
-    return None
+    raise ValueError(f"Invalid age: {age}")
