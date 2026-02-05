@@ -8,6 +8,7 @@ from data.dataset import AgeDataset
 from trainer.transforms import train_transforms, val_transforms
 from models.mobilenetv3_age import AgeMobileNetV3
 
+
 # ================= CONFIG =================
 DATASETS_DIR = "datasets"
 
@@ -24,6 +25,7 @@ BATCH_SIZE = 64
 LR = 3e-4
 # =========================================
 
+
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
 
@@ -38,19 +40,19 @@ def save_checkpoint(epoch, model, optimizer, loss):
 
 
 def load_latest_checkpoint(model, optimizer):
-    ckpts = [f for f in os.listdir(CHECKPOINT_DIR) if f.endswith(".pth")]
-    if not ckpts:
+    checkpoints = [f for f in os.listdir(CHECKPOINT_DIR) if f.endswith(".pth")]
+    if not checkpoints:
         return 0
 
-    ckpts.sort(key=lambda x: int(x.split("_")[1].split(".")[0]))
-    latest = ckpts[-1]
+    checkpoints.sort(key=lambda x: int(x.split("_")[1].split(".")[0]))
+    latest = checkpoints[-1]
 
-    checkpoint = torch.load(os.path.join(CHECKPOINT_DIR, latest), map_location=DEVICE)
-    model.load_state_dict(checkpoint["model_state"])
-    optimizer.load_state_dict(checkpoint["optimizer_state"])
+    ckpt = torch.load(os.path.join(CHECKPOINT_DIR, latest), map_location=DEVICE)
+    model.load_state_dict(ckpt["model_state"])
+    optimizer.load_state_dict(ckpt["optimizer_state"])
 
-    print(f"[RESUME] Loaded {latest}")
-    return checkpoint["epoch"] + 1
+    print(f"[RESUME] Loaded checkpoint: {latest}")
+    return ckpt["epoch"] + 1
 
 
 def main():
@@ -58,7 +60,10 @@ def main():
     val_ds   = AgeDataset(VAL_CSV, IMAGES_ROOT, val_transforms)
 
     train_loader = DataLoader(
-        train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=2
+        train_ds,
+        batch_size=BATCH_SIZE,
+        shuffle=True,
+        num_workers=2
     )
 
     model = AgeMobileNetV3().to(DEVICE)
@@ -72,11 +77,11 @@ def main():
         running_loss = 0.0
 
         loop = tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS}")
-        for imgs, labels in loop:
-            imgs, labels = imgs.to(DEVICE), labels.to(DEVICE)
+        for images, labels in loop:
+            images, labels = images.to(DEVICE), labels.to(DEVICE)
 
             optimizer.zero_grad()
-            outputs = model(imgs)
+            outputs = model(images)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()

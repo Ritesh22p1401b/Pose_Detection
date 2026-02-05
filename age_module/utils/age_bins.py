@@ -7,8 +7,8 @@ AGE_BINS = [
 
 BIN_CENTERS = [(low + high) / 2 for low, high in AGE_BINS]
 
-def age_to_class(age: int):
-    for i, (low, high) in enumerate(AGE_BINS):
+def age_to_class(age: int) -> int:
+    for idx, (low, high) in enumerate(AGE_BINS):
         if low <= age <= high:
-            return i
-    raise ValueError(f"Invalid age: {age}")
+            return idx
+    raise ValueError(f"Invalid age value: {age}")

@@ -1,6 +1,7 @@
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
+
 train_transforms = A.Compose([
     A.Resize(224, 224),
     A.HorizontalFlip(p=0.5),
@@ -14,6 +15,7 @@ train_transforms = A.Compose([
     A.Normalize(),
     ToTensorV2()
 ])
+
 
 val_transforms = A.Compose([
     A.Resize(224, 224),

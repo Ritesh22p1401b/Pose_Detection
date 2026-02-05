@@ -6,8 +6,9 @@ from PIL import Image
 
 from utils.age_bins import age_to_class
 
+
 class AgeDataset(Dataset):
-    def __init__(self, csv_file, images_root, transform=None):
+    def __init__(self, csv_file: str, images_root: str, transform=None):
         """
         csv_file    : datasets/imdb_train_new_1024.csv
         images_root : datasets/imdb-clean-1024
@@ -22,7 +23,7 @@ class AgeDataset(Dataset):
     def __getitem__(self, idx):
         row = self.data.iloc[idx]
 
-        # CSV has: 00/dfd.jpg
+        # CSV contains: 00/xxxx.jpg
         img_path = os.path.join(self.images_root, row["path"])
         age = int(row["age"])
 
