@@ -1,12 +1,18 @@
-import os
 import sys
-import io
+import ctypes
+import os
 
-# ------------------------------
-# FIX Windows stdout crash
-# ------------------------------
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="ignore")
-sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="ignore")
+# --------------------------------------------------
+# FORCE WINDOWS CONSOLE FOR GUI APP (SAFE)
+# --------------------------------------------------
+if sys.platform.startswith("win"):
+    try:
+        ctypes.windll.kernel32.AllocConsole()
+        sys.stdout = open("CONOUT$", "w", encoding="utf-8", errors="ignore")
+        sys.stderr = open("CONOUT$", "w", encoding="utf-8", errors="ignore")
+        sys.stdin = open("CONIN$", "r", encoding="utf-8", errors="ignore")
+    except Exception:
+        pass
 
 # ------------------------------
 # Silence TensorFlow INFO logs
@@ -116,7 +122,6 @@ class FaceWindow(QMainWindow):
         self.face_finder = VideoFinder(person_db)
         self.quick_mode = False
 
-        # ✅ FIXED: show selected profile names instead of count
         QMessageBox.information(
             self,
             "Profiles Loaded",

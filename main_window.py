@@ -1,7 +1,77 @@
+# import os
+# import subprocess
+# from PySide6.QtWidgets import (
+#     QMainWindow, QPushButton, QVBoxLayout, QWidget, QMessageBox
+# )
+
+
+# class MainWindow(QMainWindow):
+#     def __init__(self):
+#         super().__init__()
+#         self.setWindowTitle("Person Identification System")
+#         self.resize(900, 650)
+
+#         self.face_btn = QPushButton("FACE Recognition")
+
+#         layout = QVBoxLayout()
+#         layout.addWidget(self.face_btn)
+
+#         container = QWidget()
+#         container.setLayout(layout)
+#         self.setCentralWidget(container)
+
+#         self.face_btn.clicked.connect(self.open_face)
+
+#     def open_face(self):
+#         project_root = os.path.dirname(os.path.abspath(__file__))
+
+#         face_python = os.path.join(
+#             project_root,
+#             "face_module",
+#             "face",
+#             "Scripts",
+#             "python.exe"
+#         )
+
+#         face_entry = os.path.join(
+#             project_root,
+#             "face_module",
+#             "face_window.py"
+#         )
+
+#         if not os.path.isfile(face_python):
+#             QMessageBox.critical(
+#                 self,
+#                 "Face Launch Error",
+#                 f"Face venv python not found:\n{face_python}"
+#             )
+#             return
+
+#         if not os.path.isfile(face_entry):
+#             QMessageBox.critical(
+#                 self,
+#                 "Face Launch Error",
+#                 f"face_window.py not found:\n{face_entry}"
+#             )
+#             return
+
+#         try:
+#             subprocess.Popen(
+#                 [face_python, face_entry],
+#                 cwd=os.path.dirname(face_entry)
+#             )
+#         except Exception as e:
+#             QMessageBox.critical(self, "Launch Failed", str(e))
+
+
 import os
 import subprocess
 from PySide6.QtWidgets import (
-    QMainWindow, QPushButton, QVBoxLayout, QWidget, QMessageBox
+    QMainWindow,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+    QMessageBox
 )
 
 
@@ -11,6 +81,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Person Identification System")
         self.resize(900, 650)
 
+        # ---------------- UI ----------------
         self.face_btn = QPushButton("FACE Recognition")
 
         layout = QVBoxLayout()
@@ -20,11 +91,13 @@ class MainWindow(QMainWindow):
         container.setLayout(layout)
         self.setCentralWidget(container)
 
+        # ---------------- SIGNALS ----------------
         self.face_btn.clicked.connect(self.open_face)
 
     def open_face(self):
         project_root = os.path.dirname(os.path.abspath(__file__))
 
+        # Path to face virtual environment python
         face_python = os.path.join(
             project_root,
             "face_module",
@@ -33,12 +106,14 @@ class MainWindow(QMainWindow):
             "python.exe"
         )
 
+        # Entry script
         face_entry = os.path.join(
             project_root,
             "face_module",
             "face_window.py"
         )
 
+        # ---------------- VALIDATION ----------------
         if not os.path.isfile(face_python):
             QMessageBox.critical(
                 self,
@@ -55,10 +130,21 @@ class MainWindow(QMainWindow):
             )
             return
 
+        # ---------------- LAUNCH IN NEW TERMINAL ----------------
         try:
             subprocess.Popen(
-                [face_python, face_entry],
+                [
+                    "cmd.exe",
+                    "/k",  # keep terminal open
+                    "title Face Recognition Console &&",
+                    face_python,
+                    face_entry
+                ],
                 cwd=os.path.dirname(face_entry)
             )
         except Exception as e:
-            QMessageBox.critical(self, "Launch Failed", str(e))
+            QMessageBox.critical(
+                self,
+                "Launch Failed",
+                str(e)
+            )
