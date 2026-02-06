@@ -1,3 +1,4 @@
+# file: train.py
 import os
 import torch
 from torch.utils.data import DataLoader
@@ -12,10 +13,14 @@ from models.mobilenetv3_age import AgeMobileNetV3
 # ================= CONFIG =================
 DATASETS_DIR = "datasets"
 
-IMAGES_ROOT = os.path.join(DATASETS_DIR, "imdb-clean-1024")
+# 🔑 Correct image root (double folder)
+IMAGES_ROOT = os.path.join(
+    DATASETS_DIR, "imdb-clean-1024", "imdb-clean-1024"
+)
 
-TRAIN_CSV = os.path.join(DATASETS_DIR, "imdb_train_new_1024.csv")
-VAL_CSV   = os.path.join(DATASETS_DIR, "imdb_valid_new_1024.csv")
+# 🔑 Correct cleaned CSV paths
+TRAIN_CSV = os.path.join(DATASETS_DIR, "imdb_train_cleaned_1024.csv")
+VAL_CSV   = os.path.join(DATASETS_DIR, "imdb_valid_cleaned_1024.csv")
 
 CHECKPOINT_DIR = "checkpoints"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -23,6 +28,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 EPOCHS = 10
 BATCH_SIZE = 64
 LR = 3e-4
+NUM_CLASSES = 12
 # =========================================
 
 
@@ -63,10 +69,11 @@ def main():
         train_ds,
         batch_size=BATCH_SIZE,
         shuffle=True,
-        num_workers=2
+        num_workers=2,
+        pin_memory=True
     )
 
-    model = AgeMobileNetV3().to(DEVICE)
+    model = AgeMobileNetV3(num_classes=NUM_CLASSES).to(DEVICE)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=LR)
 
@@ -78,7 +85,8 @@ def main():
 
         loop = tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS}")
         for images, labels in loop:
-            images, labels = images.to(DEVICE), labels.to(DEVICE)
+            images = images.to(DEVICE, non_blocking=True)
+            labels = labels.to(DEVICE, non_blocking=True)
 
             optimizer.zero_grad()
             outputs = model(images)

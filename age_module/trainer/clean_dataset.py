@@ -6,7 +6,9 @@ from tqdm import tqdm
 # ================= CONFIG =================
 DATASETS_DIR = "datasets"
 
-IMAGES_ROOT = os.path.join(DATASETS_DIR, "imdb-clean-1024")
+IMAGES_ROOT = os.path.join(
+    DATASETS_DIR, "imdb-clean-1024", "imdb-clean-1024"
+)
 
 TRAIN_CSV_IN = os.path.join(DATASETS_DIR, "imdb_train_new_1024.csv")
 VAL_CSV_IN   = os.path.join(DATASETS_DIR, "imdb_valid_new_1024.csv")
@@ -16,54 +18,67 @@ VAL_CSV_OUT   = os.path.join(DATASETS_DIR, "imdb_valid_cleaned_1024.csv")
 
 MIN_AGE = 0
 MAX_AGE = 80
-MIN_IMG_SIZE = 40
+MIN_FACE_SIZE = 40
 # =========================================
 
 
-def find_image_path(img_name: str):
+def normalize_filename(name):
     """
-    Tries to locate image inside 00–99 subfolders.
+    Extract clean basename from CSV entry.
+    Handles paths like:
+    - 00/xxx.jpg
+    - imdb-clean-1024/00/xxx.jpg
     """
-    # If CSV already contains subfolder (e.g. 12/xxx.jpg)
-    direct_path = os.path.join(IMAGES_ROOT, img_name)
-    if os.path.exists(direct_path):
-        return direct_path, img_name
-
-    # Otherwise search 00–99
-    for i in range(100):
-        folder = f"{i:02d}"
-        path = os.path.join(IMAGES_ROOT, folder, img_name)
-        if os.path.exists(path):
-            return path, f"{folder}/{img_name}"
-
-    return None, None
+    return os.path.basename(str(name)).strip().lower()
 
 
-def is_valid_image(img_path):
-    img = cv2.imread(img_path)
-    if img is None:
+def build_image_index():
+    """
+    Build basename -> relative path index (robust).
+    """
+    print("[INFO] Building image index...")
+    print("[DEBUG] IMAGES_ROOT =", os.path.abspath(IMAGES_ROOT))
+
+    if not os.path.isdir(IMAGES_ROOT):
+        raise RuntimeError(f"❌ IMAGES_ROOT not found: {IMAGES_ROOT}")
+
+    index = {}
+
+    for root, _, files in os.walk(IMAGES_ROOT):
+        for fname in files:
+            if fname.lower().endswith((".jpg", ".jpeg", ".png")):
+                abs_path = os.path.join(root, fname)
+                rel_path = os.path.relpath(abs_path, IMAGES_ROOT)
+                index[fname.lower()] = rel_path
+
+    print(f"[INFO] Indexed {len(index)} images")
+
+    if len(index) == 0:
+        raise RuntimeError("❌ Image index is empty. Dataset not detected.")
+
+    return index
+
+
+def is_valid_face_bbox(row):
+    try:
+        w = int(row["x_max"]) - int(row["x_min"])
+        h = int(row["y_max"]) - int(row["y_min"])
+        return w >= MIN_FACE_SIZE and h >= MIN_FACE_SIZE
+    except Exception:
         return False
 
-    h, w, _ = img.shape
-    return h >= MIN_IMG_SIZE and w >= MIN_IMG_SIZE
+
+def is_valid_image(path):
+    img = cv2.imread(path)
+    return img is not None
 
 
-def clean_csv(input_csv, output_csv):
+def clean_csv(input_csv, output_csv, image_index):
     df = pd.read_csv(input_csv)
 
-    # Detect image column
-    if "path" in df.columns:
-        img_col = "path"
-    elif "image" in df.columns:
-        img_col = "image"
-    else:
-        raise ValueError(
-            f"No image column found in {input_csv}. "
-            f"Columns: {list(df.columns)}"
-        )
-
-    if "age" not in df.columns:
-        raise ValueError("CSV must contain an 'age' column")
+    required = {"filename", "age", "x_min", "y_min", "x_max", "y_max"}
+    if not required.issubset(df.columns):
+        raise ValueError(f"Missing columns: {required - set(df.columns)}")
 
     cleaned = []
 
@@ -75,27 +90,31 @@ def clean_csv(input_csv, output_csv):
             if age < MIN_AGE or age > MAX_AGE:
                 continue
 
-            img_name = str(row[img_col]).strip()
-            img_path, rel_path = find_image_path(img_name)
-
-            if img_path is None:
+            if not is_valid_face_bbox(row):
                 continue
 
-            if not is_valid_image(img_path):
+            fname = normalize_filename(row["filename"])
+            rel_path = image_index.get(fname)
+            if rel_path is None:
+                continue
+
+            abs_path = os.path.join(IMAGES_ROOT, rel_path)
+            if not is_valid_image(abs_path):
                 continue
 
             cleaned.append({
-                "path": rel_path,
+                "path": rel_path.replace("\\", "/"),
                 "age": age
             })
 
         except Exception:
             continue
 
-    if len(cleaned) == 0:
+    if not cleaned:
         raise RuntimeError(
-            f"❌ Cleaning removed ALL samples from {input_csv}. "
-            f"Check image paths or folder structure."
+            f"❌ No images resolved from {input_csv}\n"
+            f"Image index size = {len(image_index)}\n"
+            f"➡ CSV filenames do not match disk images"
         )
 
     out_df = pd.DataFrame(cleaned)
@@ -106,8 +125,9 @@ def clean_csv(input_csv, output_csv):
 
 
 def main():
-    clean_csv(TRAIN_CSV_IN, TRAIN_CSV_OUT)
-    clean_csv(VAL_CSV_IN, VAL_CSV_OUT)
+    image_index = build_image_index()
+    clean_csv(TRAIN_CSV_IN, TRAIN_CSV_OUT, image_index)
+    clean_csv(VAL_CSV_IN, VAL_CSV_OUT, image_index)
     print("\n✅ Dataset cleaning completed successfully")
 
 
