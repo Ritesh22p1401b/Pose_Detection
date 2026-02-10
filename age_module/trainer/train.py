@@ -1,4 +1,3 @@
-# file: train.py
 import os
 import torch
 from torch.utils.data import DataLoader
@@ -9,16 +8,11 @@ from data.dataset import AgeDataset
 from trainer.transforms import train_transforms, val_transforms
 from models.mobilenetv3_age import AgeMobileNetV3
 
-
 # ================= CONFIG =================
 DATASETS_DIR = "datasets"
 
-# 🔑 Correct image root (double folder)
-IMAGES_ROOT = os.path.join(
-    DATASETS_DIR, "imdb-clean-1024", "imdb-clean-1024"
-)
+IMAGES_ROOT = os.path.join(DATASETS_DIR, "imdb-clean-1024")
 
-# 🔑 Correct cleaned CSV paths
 TRAIN_CSV = os.path.join(DATASETS_DIR, "imdb_train_cleaned_1024.csv")
 VAL_CSV   = os.path.join(DATASETS_DIR, "imdb_valid_cleaned_1024.csv")
 
@@ -28,36 +22,36 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 EPOCHS = 10
 BATCH_SIZE = 64
 LR = 3e-4
-NUM_CLASSES = 12
 # =========================================
-
 
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
 
 def save_checkpoint(epoch, model, optimizer, loss):
-    path = os.path.join(CHECKPOINT_DIR, f"epoch_{epoch}.pth")
-    torch.save({
-        "epoch": epoch,
-        "model_state": model.state_dict(),
-        "optimizer_state": optimizer.state_dict(),
-        "loss": loss
-    }, path)
+    torch.save(
+        {
+            "epoch": epoch,
+            "model_state": model.state_dict(),
+            "optimizer_state": optimizer.state_dict(),
+            "loss": loss,
+        },
+        os.path.join(CHECKPOINT_DIR, f"epoch_{epoch}.pth"),
+    )
 
 
 def load_latest_checkpoint(model, optimizer):
-    checkpoints = [f for f in os.listdir(CHECKPOINT_DIR) if f.endswith(".pth")]
-    if not checkpoints:
+    ckpts = [f for f in os.listdir(CHECKPOINT_DIR) if f.endswith(".pth")]
+    if not ckpts:
         return 0
 
-    checkpoints.sort(key=lambda x: int(x.split("_")[1].split(".")[0]))
-    latest = checkpoints[-1]
+    ckpts.sort(key=lambda x: int(x.split("_")[1].split(".")[0]))
+    latest = ckpts[-1]
 
     ckpt = torch.load(os.path.join(CHECKPOINT_DIR, latest), map_location=DEVICE)
     model.load_state_dict(ckpt["model_state"])
     optimizer.load_state_dict(ckpt["optimizer_state"])
 
-    print(f"[RESUME] Loaded checkpoint: {latest}")
+    print(f"[RESUME] Loaded {latest}")
     return ckpt["epoch"] + 1
 
 
@@ -70,10 +64,9 @@ def main():
         batch_size=BATCH_SIZE,
         shuffle=True,
         num_workers=2,
-        pin_memory=True
     )
 
-    model = AgeMobileNetV3(num_classes=NUM_CLASSES).to(DEVICE)
+    model = AgeMobileNetV3().to(DEVICE)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=LR)
 
@@ -85,8 +78,7 @@ def main():
 
         loop = tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS}")
         for images, labels in loop:
-            images = images.to(DEVICE, non_blocking=True)
-            labels = labels.to(DEVICE, non_blocking=True)
+            images, labels = images.to(DEVICE), labels.to(DEVICE)
 
             optimizer.zero_grad()
             outputs = model(images)

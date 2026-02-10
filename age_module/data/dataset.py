@@ -8,14 +8,21 @@ from utils.age_bins import age_to_class
 
 
 class AgeDataset(Dataset):
-    def __init__(self, csv_file: str, images_root: str, transform=None):
-        """
-        csv_file    : datasets/imdb_train_new_1024.csv
-        images_root : datasets/imdb-clean-1024
-        """
+    def __init__(self, csv_file, images_root, transform=None):
         self.data = pd.read_csv(csv_file)
         self.images_root = images_root
         self.transform = transform
+
+        # Your CSV uses `filename`
+        if "filename" not in self.data.columns:
+            raise ValueError(
+                f"'filename' column not found. Columns: {self.data.columns.tolist()}"
+            )
+
+        if "age" not in self.data.columns:
+            raise ValueError("'age' column not found in CSV")
+
+        print("[DATASET] Using image column: 'filename'")
 
     def __len__(self):
         return len(self.data)
@@ -23,8 +30,7 @@ class AgeDataset(Dataset):
     def __getitem__(self, idx):
         row = self.data.iloc[idx]
 
-        # CSV contains: 00/xxxx.jpg
-        img_path = os.path.join(self.images_root, row["path"])
+        img_path = os.path.join(self.images_root, row["filename"])
         age = int(row["age"])
 
         label = age_to_class(age)
