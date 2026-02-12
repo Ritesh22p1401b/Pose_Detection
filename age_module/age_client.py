@@ -14,7 +14,7 @@ class AgeClient:
 
         # SAME STRUCTURE AS GENDER MODULE
         python_exe = os.path.join(
-            module_root,"age_module", "test", "Scripts", "python.exe"
+            module_root,"base", "Scripts", "python.exe"
         )
 
         worker_script = os.path.join(
