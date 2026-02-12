@@ -3,9 +3,9 @@ import cv2
 import numpy as np
 import os
 import torch.nn.functional as F
-from model import AgeMobileNetV3
 
-# Modify according to your training bins
+from models.mobilenetv3_age import AgeMobileNetV3
+
 AGE_LABELS = [
     "0-5", "6-10", "11-15", "16-20",
     "21-25", "26-30", "31-35", "36-40",
@@ -20,7 +20,14 @@ class AgePredictor:
         model_path = os.path.join(base_dir, "models", "age_mobilenetv3_final.pth")
 
         self.model = AgeMobileNetV3(num_classes=12)
-        self.model.load_state_dict(torch.load(model_path, map_location=self.device))
+
+        checkpoint = torch.load(model_path, map_location=self.device)
+
+        if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+            self.model.load_state_dict(checkpoint["model_state_dict"])
+        else:
+            self.model.load_state_dict(checkpoint)
+
         self.model.to(self.device)
         self.model.eval()
 
@@ -28,10 +35,8 @@ class AgePredictor:
         face = cv2.resize(face, (224, 224))
         face = cv2.cvtColor(face, cv2.COLOR_BGR2RGB)
         face = face.astype(np.float32) / 255.0
-
         face = np.transpose(face, (2, 0, 1))
         face = torch.tensor(face).unsqueeze(0).to(self.device)
-
         return face
 
     def predict(self, face):
