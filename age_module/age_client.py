@@ -4,6 +4,7 @@ import struct
 import os
 import sys
 
+
 class AgeClient:
     def __init__(self):
         self.proc = None
@@ -12,9 +13,9 @@ class AgeClient:
     def _start_worker(self):
         module_root = os.path.dirname(os.path.abspath(__file__))
 
-        # SAME STRUCTURE AS GENDER MODULE
+        # 🔥 YOUR ACTUAL VENV NAME: base
         python_exe = os.path.join(
-            module_root,"base", "Scripts", "python.exe"
+            module_root, "base", "Scripts", "python.exe"
         )
 
         worker_script = os.path.join(
@@ -33,7 +34,7 @@ class AgeClient:
                 f"{worker_script}"
             )
 
-        print("[AgeClient] Starting age worker (test venv)...")
+        print("[AgeClient] Starting age worker (base venv)...")
 
         self.proc = subprocess.Popen(
             [python_exe, worker_script],
@@ -43,7 +44,7 @@ class AgeClient:
             bufsize=0
         )
 
-        # HANDSHAKE
+        # -------- HANDSHAKE --------
         ready = self.proc.stdout.read(5)
         if ready != b"READY":
             raise RuntimeError(
@@ -60,7 +61,11 @@ class AgeClient:
             self.proc.stdin.write(payload)
             self.proc.stdin.flush()
 
-            size = struct.unpack("I", self.proc.stdout.read(4))[0]
+            size_data = self.proc.stdout.read(4)
+            if not size_data:
+                return "Unknown"
+
+            size = struct.unpack("I", size_data)[0]
             data = self.proc.stdout.read(size)
 
             return pickle.loads(data)
