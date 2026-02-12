@@ -1,4 +1,5 @@
 import os
+import sys
 import torch
 from torch.utils.data import DataLoader
 from torch import nn
@@ -8,94 +9,89 @@ from data.dataset import AgeDataset
 from trainer.transforms import train_transforms, val_transforms
 from models.mobilenetv3_age import AgeMobileNetV3
 
+
 # ================= CONFIG =================
 DATASETS_DIR = "datasets"
 
-IMAGES_ROOT = os.path.join(DATASETS_DIR, "imdb-clean-1024")
+IMAGES_ROOT = os.path.join(
+    DATASETS_DIR,
+    "imdb-clean-1024",
+    "imdb-clean-1024"
+)
 
 TRAIN_CSV = os.path.join(DATASETS_DIR, "imdb_train_cleaned_1024.csv")
 VAL_CSV   = os.path.join(DATASETS_DIR, "imdb_valid_cleaned_1024.csv")
 
 CHECKPOINT_DIR = "checkpoints"
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 EPOCHS = 10
 BATCH_SIZE = 64
 LR = 3e-4
 # =========================================
 
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+print("=" * 60)
+print("[BOOT]")
+print("Python exec :", sys.executable)
+print("CWD         :", os.getcwd())
+print("Device      :", DEVICE)
+print("TRAIN CSV   :", os.path.exists(TRAIN_CSV))
+print("IMG ROOT    :", os.path.exists(IMAGES_ROOT))
+print("=" * 60, flush=True)
+
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
 
-def save_checkpoint(epoch, model, optimizer, loss):
-    torch.save(
-        {
-            "epoch": epoch,
-            "model_state": model.state_dict(),
-            "optimizer_state": optimizer.state_dict(),
-            "loss": loss,
-        },
-        os.path.join(CHECKPOINT_DIR, f"epoch_{epoch}.pth"),
-    )
-
-
-def load_latest_checkpoint(model, optimizer):
-    ckpts = [f for f in os.listdir(CHECKPOINT_DIR) if f.endswith(".pth")]
-    if not ckpts:
-        return 0
-
-    ckpts.sort(key=lambda x: int(x.split("_")[1].split(".")[0]))
-    latest = ckpts[-1]
-
-    ckpt = torch.load(os.path.join(CHECKPOINT_DIR, latest), map_location=DEVICE)
-    model.load_state_dict(ckpt["model_state"])
-    optimizer.load_state_dict(ckpt["optimizer_state"])
-
-    print(f"[RESUME] Loaded {latest}")
-    return ckpt["epoch"] + 1
-
-
 def main():
+    print("[STEP] Loading datasets...", flush=True)
+
     train_ds = AgeDataset(TRAIN_CSV, IMAGES_ROOT, train_transforms)
     val_ds   = AgeDataset(VAL_CSV, IMAGES_ROOT, val_transforms)
+
+    print(f"[STEP] Train samples: {len(train_ds)}", flush=True)
+    print(f"[STEP] Val samples  : {len(val_ds)}", flush=True)
 
     train_loader = DataLoader(
         train_ds,
         batch_size=BATCH_SIZE,
         shuffle=True,
-        num_workers=2,
+        num_workers=0,      # Windows-safe
+        pin_memory=True
     )
 
     model = AgeMobileNetV3().to(DEVICE)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=LR)
 
-    start_epoch = load_latest_checkpoint(model, optimizer)
+    scaler = torch.cuda.amp.GradScaler(enabled=(DEVICE == "cuda"))
 
-    for epoch in range(start_epoch, EPOCHS):
+    for epoch in range(EPOCHS):
         model.train()
         running_loss = 0.0
 
         loop = tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS}")
         for images, labels in loop:
-            images, labels = images.to(DEVICE), labels.to(DEVICE)
+            images = images.to(DEVICE)
+            labels = labels.to(DEVICE)
 
             optimizer.zero_grad()
-            outputs = model(images)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
+
+            with torch.cuda.amp.autocast(enabled=(DEVICE == "cuda")):
+                outputs = model(images)
+                loss = criterion(outputs, labels)
+
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
 
             running_loss += loss.item()
             loop.set_postfix(loss=loss.item())
 
-        avg_loss = running_loss / len(train_loader)
-        print(f"[Epoch {epoch+1}] Avg Loss: {avg_loss:.4f}")
-
-        save_checkpoint(epoch, model, optimizer, avg_loss)
+        print(f"[Epoch {epoch+1}] Avg Loss: {running_loss / len(train_loader):.4f}")
 
     torch.save(model.state_dict(), "age_mobilenetv3_final.pth")
-    print("[DONE] Saved age_mobilenetv3_final.pth")
+    print("[DONE] Training finished")
 
 
 if __name__ == "__main__":
