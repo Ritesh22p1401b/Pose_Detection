@@ -1,0 +1,8 @@
+path: D:/training/dataset
+
+train: images/train
+val: images/val
+
+names:
+  0: gun
+  1: knife
