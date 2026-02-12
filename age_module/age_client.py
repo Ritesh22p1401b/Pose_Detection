@@ -12,9 +12,9 @@ class AgeClient:
     def _start_worker(self):
         module_root = os.path.dirname(os.path.abspath(__file__))
 
-        # Correct age venv python
+        # SAME STRUCTURE AS GENDER MODULE
         python_exe = os.path.join(
-            module_root, "venv", "Scripts", "python.exe"
+            module_root,"age_module", "test", "Scripts", "python.exe"
         )
 
         worker_script = os.path.join(
@@ -33,7 +33,7 @@ class AgeClient:
                 f"{worker_script}"
             )
 
-        print("[AgeClient] Starting age worker...")
+        print("[AgeClient] Starting age worker (test venv)...")
 
         self.proc = subprocess.Popen(
             [python_exe, worker_script],
@@ -43,7 +43,7 @@ class AgeClient:
             bufsize=0
         )
 
-        # Handshake
+        # HANDSHAKE
         ready = self.proc.stdout.read(5)
         if ready != b"READY":
             raise RuntimeError(
