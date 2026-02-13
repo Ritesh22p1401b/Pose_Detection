@@ -21,7 +21,8 @@ from insightface.app import FaceAnalysis
 from face_matcher import cosine_similarity
 from emotion_module.emotion_link.emotion_adapter import EmotionAdapter
 from gender_age_module.gender_age_client import GenderAgeClient
-from age_module.age_client import AgeClient   # ✅ Correct import
+from age_module.age_client import AgeClient
+from theft_module.theft_client import TheftClient
 
 # --------------------------------------------------
 # CONFIG
@@ -74,12 +75,17 @@ class VideoFinder:
             print("[VideoFinder] Gender disabled:", e)
             self.gender_engine = None
 
-        # ---------------- AGE MODULE ----------------
         try:
             self.age_engine = AgeClient()
         except Exception as e:
             print("[Age Adapter] Age disabled:", e)
             self.age_engine = None
+
+        try:
+            self.theft_engine = TheftClient()
+        except Exception as e:
+            print("[Theft Adapter] Theft disabled:", e)
+            self.theft_engine = None
 
         providers = ort.get_available_providers()
         ctx_id = 0 if "CUDAExecutionProvider" in providers else -1
@@ -123,7 +129,8 @@ class VideoFinder:
     def detect_frame(self, frame):
         self.frame_count += 1
         active = []
-        bottom_lines = []
+
+        weapon_status = "nothing"
 
         for t in self.trackers:
             ok, bbox = t["tracker"].update(frame)
@@ -171,16 +178,33 @@ class VideoFinder:
                     if age != "Unknown":
                         t["age"] = age
 
-            # ---------------- DRAW ----------------
+            # ---------------- WEAPON (UPPER BODY ROI) ----------------
+            if self.theft_engine:
+                expanded_y2 = min(frame.shape[0], y + h * 3)
+                weapon_roi = frame[y:expanded_y2, x:x+w]
+
+                if weapon_roi.size > 0:
+                    try:
+                        label = self.theft_engine.predict(weapon_roi)
+                        if label != "nothing":
+                            weapon_status = label
+                    except Exception:
+                        pass
+
+            # ---------------- DRAW FACE BOX ----------------
             color = (0, 255, 0) if t["matched"] else (0, 0, 255)
 
-            label = f"{t['name']} | {t.get('expression_now','--')} | {t.get('gender','--')} | {t.get('age','--')}"
+            label_text = (
+                f"{t['name']} | "
+                f"{t.get('expression_now','--')} | "
+                f"{t.get('gender','--')} | "
+                f"{t.get('age','--')}"
+            )
 
             cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
-            cv2.putText(frame, label, (x, y-10),
+            cv2.putText(frame, label_text, (x, y-10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
 
-            bottom_lines.append(label)
             active.append(t)
 
         self.trackers = active
@@ -216,11 +240,13 @@ class VideoFinder:
                     "age": "--"
                 })
 
-        # ---------------- BOTTOM DISPLAY ----------------
-        y_pos = frame.shape[0] - 20
-        for line in reversed(bottom_lines):
-            cv2.putText(frame, line, (10, y_pos),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-            y_pos -= 24
+        # ---------------- WEAPON DISPLAY (BOTTOM LEFT ONLY) ----------------
+        cv2.putText(frame,
+                    f"Weapon: {weapon_status}",
+                    (10, frame.shape[0] - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8,
+                    (0, 0, 255),
+                    2)
 
         return frame
