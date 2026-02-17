@@ -43,3 +43,34 @@ The system processes live webcam or video streams and performs multi-attribute f
 
 ## 🏗 System Architecture
 
+```mermaid
+flowchart TD
+    A["Input - Webcam / Video / Image"] --> B["Face Detection - InsightFace"]
+    B --> C["Face Recognition"]
+    B --> D["Age Prediction"]
+    B --> E["Gender Classification"]
+    B --> F["Emotion Recognition"]
+    C --> G["Annotated Output - PyQt GUI"]
+    D --> G
+    E --> G
+    F --> G
+```
+
+---
+
+### Why This Works
+- All labels are wrapped in **double quotes**
+- Parentheses are removed
+- Special characters are avoided
+- Compatible with GitHub Markdown renderer
+
+---
+
+If you want, I can now:
+
+- Add the **Gun Detection (YOLOv8) module** into this diagram  
+- Create a **training vs inference architecture diagram**  
+- Make a more advanced system-level architecture diagram  
+- Design a clean diagram for your project report (PDF ready)  
+
+Tell me the level of detail you want.
