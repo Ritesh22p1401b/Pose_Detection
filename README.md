@@ -10,7 +10,7 @@ The system processes live webcam or video streams and performs multi-attribute f
 
 <!-- Upload your screenshot inside an `assets/` folder and replace the file name below -->
 
-![Application Demo](assets/demo.png)
+![Application Demo](assest/demo.png)
 
 *Example output showing real-time face detection with emotion, gender, and age prediction overlay.*
 
