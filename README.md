@@ -66,6 +66,25 @@ flowchart TD
   - Gender Classification  
   - Emotion Recognition  
 - Results are displayed in the PyQt GUI.
-
 ---
+
+## 🔮 Future Enhancements
+
+- **Gun Detection Module (YOLOv8 Integration):**  
+  Implement real-time weapon detection using a YOLOv8 object detection model to enhance security and threat identification capabilities.
+
+- **Multi-Person Tracking:**  
+  Integrate persistent ID tracking to maintain identity consistency across video frames.
+
+- **Edge Device Optimization:**  
+  Optimize models for deployment on low-power devices such as Raspberry Pi or edge AI hardware.
+
+- **Cloud Deployment:**  
+  Develop REST API-based inference system for remote access and scalable deployment.
+
+- **Performance Optimization:**  
+  Improve inference speed, model accuracy, and memory efficiency through model pruning and quantization.
+
+- **Database Logging & Analytics:**  
+  Store detection logs and user attributes for analytics and reporting purposes.
 
