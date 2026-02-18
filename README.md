@@ -57,20 +57,15 @@ flowchart TD
 ```
 
 ---
-
-### Why This Works
-- All labels are wrapped in **double quotes**
-- Parentheses are removed
-- Special characters are avoided
-- Compatible with GitHub Markdown renderer
+### ✅ How it works
+- Input is captured from webcam, video, or image.
+- InsightFace performs face detection.
+- The detected face is passed to:
+  - Face Recognition  
+  - Age Prediction  
+  - Gender Classification  
+  - Emotion Recognition  
+- Results are displayed in the PyQt GUI.
 
 ---
 
-If you want, I can now:
-
-- Add the **Gun Detection (YOLOv8) module** into this diagram  
-- Create a **training vs inference architecture diagram**  
-- Make a more advanced system-level architecture diagram  
-- Design a clean diagram for your project report (PDF ready)  
-
-Tell me the level of detail you want.
