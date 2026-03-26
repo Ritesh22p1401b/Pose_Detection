@@ -1,3 +1,4 @@
+
 import os
 import shutil
 from PySide6.QtWidgets import (
@@ -8,6 +9,7 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtCore import Qt, Signal
 
 REFERENCE_DIR = "reference_faces"
+VALID_EXTENSIONS = (".jpg", ".jpeg", ".png")
 
 
 class ReferenceManager(QWidget):
@@ -70,7 +72,6 @@ class ReferenceManager(QWidget):
 
         selected = [i.text() for i in items]
 
-        # ✅ REQUIRED: dialog with selected profile names
         QMessageBox.information(
             self,
             "Selected Profiles",
@@ -115,7 +116,7 @@ class ReferenceManager(QWidget):
             return
 
         files, _ = QFileDialog.getOpenFileNames(
-            self, "Select Images", "", "Images (*.jpg *.png)"
+            self, "Select Images", "", "Images (*.jpg *.jpeg *.png)"
         )
 
         for f in files:
@@ -131,7 +132,7 @@ class ReferenceManager(QWidget):
         person_dir = os.path.join(REFERENCE_DIR, item.text())
         images = [
             f for f in os.listdir(person_dir)
-            if f.lower().endswith((".jpg", ".png"))
+            if f.lower().endswith(VALID_EXTENSIONS)
         ]
 
         if not images:
