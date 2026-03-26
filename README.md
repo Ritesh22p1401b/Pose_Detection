@@ -10,7 +10,7 @@ The system processes live webcam or video streams and performs multi-attribute f
 
 <!-- Upload your screenshot inside an `assets/` folder and replace the file name below -->
 
-![Application Demo](assets/demo.png)
+![Application Demo](assest/demo.png)
 
 *Example output showing real-time face detection with emotion, gender, and age prediction overlay.*
 
@@ -57,20 +57,34 @@ flowchart TD
 ```
 
 ---
-
-### Why This Works
-- All labels are wrapped in **double quotes**
-- Parentheses are removed
-- Special characters are avoided
-- Compatible with GitHub Markdown renderer
-
+### ✅ How it works
+- Input is captured from webcam, video, or image.
+- InsightFace performs face detection.
+- The detected face is passed to:
+  - Face Recognition  
+  - Age Prediction  
+  - Gender Classification  
+  - Emotion Recognition  
+- Results are displayed in the PyQt GUI.
 ---
 
-If you want, I can now:
+## 🔮 Future Enhancements
 
-- Add the **Gun Detection (YOLOv8) module** into this diagram  
-- Create a **training vs inference architecture diagram**  
-- Make a more advanced system-level architecture diagram  
-- Design a clean diagram for your project report (PDF ready)  
+- **Gun Detection Module (YOLOv8 Integration):**  
+  Implement real-time weapon detection using a YOLOv8 object detection model to enhance security and threat identification capabilities.
 
-Tell me the level of detail you want.
+- **Multi-Person Tracking:**  
+  Integrate persistent ID tracking to maintain identity consistency across video frames.
+
+- **Edge Device Optimization:**  
+  Optimize models for deployment on low-power devices such as Raspberry Pi or edge AI hardware.
+
+- **Cloud Deployment:**  
+  Develop REST API-based inference system for remote access and scalable deployment.
+
+- **Performance Optimization:**  
+  Improve inference speed, model accuracy, and memory efficiency through model pruning and quantization.
+
+- **Database Logging & Analytics:**  
+  Store detection logs and user attributes for analytics and reporting purposes.
+
