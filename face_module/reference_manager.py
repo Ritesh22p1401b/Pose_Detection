@@ -1,6 +1,6 @@
-
 import os
 import shutil
+import cv2
 from PySide6.QtWidgets import (
     QWidget, QListWidget, QLabel, QPushButton, QFileDialog,
     QVBoxLayout, QHBoxLayout, QMessageBox, QInputDialog
@@ -75,8 +75,7 @@ class ReferenceManager(QWidget):
         QMessageBox.information(
             self,
             "Selected Profiles",
-            "The following profile(s) are selected for verification:\n\n"
-            + ", ".join(selected)
+            "Selected for verification:\n\n" + ", ".join(selected)
         )
 
         self.persons_selected.emit(selected)
@@ -110,17 +109,58 @@ class ReferenceManager(QWidget):
         self.preview.clear()
         self.refresh()
 
+    def is_valid_image(self, path):
+        """Validate image using OpenCV"""
+        try:
+            img = cv2.imread(path)
+            return img is not None
+        except:
+            return False
+
     def add_imgs(self):
         item = self.list.currentItem()
         if not item:
+            QMessageBox.warning(self, "Error", "Select a person first")
             return
 
         files, _ = QFileDialog.getOpenFileNames(
-            self, "Select Images", "", "Images (*.jpg *.jpeg *.png)"
+            self,
+            "Select Images",
+            "",
+            "Images (*.jpg *.jpeg *.png)"
         )
 
+        if not files:
+            return
+
+        dest_dir = os.path.join(REFERENCE_DIR, item.text())
+        added = 0
+        skipped = 0
+
         for f in files:
-            shutil.copy(f, os.path.join(REFERENCE_DIR, item.text()))
+            ext = os.path.splitext(f)[1].lower()
+
+            if ext not in VALID_EXTENSIONS:
+                skipped += 1
+                continue
+
+            if not self.is_valid_image(f):
+                skipped += 1
+                continue
+
+            try:
+                filename = os.path.basename(f)
+                shutil.copy(f, os.path.join(dest_dir, filename))
+                added += 1
+            except Exception as e:
+                print("Copy error:", e)
+                skipped += 1
+
+        QMessageBox.information(
+            self,
+            "Upload Result",
+            f"Added: {added}\nSkipped: {skipped}"
+        )
 
         self.preview_image(item)
 
@@ -130,6 +170,7 @@ class ReferenceManager(QWidget):
             return
 
         person_dir = os.path.join(REFERENCE_DIR, item.text())
+
         images = [
             f for f in os.listdir(person_dir)
             if f.lower().endswith(VALID_EXTENSIONS)
@@ -139,7 +180,15 @@ class ReferenceManager(QWidget):
             self.preview.setText("No images")
             return
 
-        pix = QPixmap(os.path.join(person_dir, images[0]))
+        img_path = os.path.join(person_dir, images[0])
+
+        pix = QPixmap(img_path)
+
+        # 🔥 Fix for PNG / corrupted preview
+        if pix.isNull():
+            self.preview.setText("Preview not available")
+            return
+
         self.preview.setPixmap(
-            pix.scaled(self.preview.size(), Qt.KeepAspectRatio)
+            pix.scaled(self.preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
         )

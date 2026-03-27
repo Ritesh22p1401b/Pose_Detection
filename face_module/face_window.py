@@ -37,6 +37,9 @@ from camera.auto_camera import AutoCamera
 VIDEO_WIDTH = 640
 VIDEO_HEIGHT = 480
 
+# ✅ Centralized extension support (includes JPEG)
+VALID_EXTENSIONS = (".jpg", ".jpeg", ".png")
+
 
 def resize_with_aspect_ratio(frame, target_w, target_h):
     h, w = frame.shape[:2]
@@ -115,7 +118,8 @@ class FaceWindow(QMainWindow):
             selected_persons=self.selected_persons
         )
 
-        if not person_db:
+        # ✅ Same logic, just safer check
+        if not person_db or len(person_db) == 0:
             QMessageBox.warning(self, "Error", "No valid face images found")
             return
 
@@ -125,18 +129,35 @@ class FaceWindow(QMainWindow):
         QMessageBox.information(
             self,
             "Profiles Loaded",
-            "The following profile(s) are loaded for verification:\n\n"
+            "The following profile(s) are loaded:\n\n"
             + ", ".join(self.selected_persons)
         )
 
     def quick_verify(self):
+        # ✅ JPEG added here
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Quick Verify", "", "Images (*.jpg *.png)"
+            self, "Quick Verify", "", "Images (*.jpg *.jpeg *.png)"
         )
+
         if not paths:
             return
 
-        ref = self.encoder.encode_images(paths)
+        # ✅ Ensure only valid extensions are used
+        valid_paths = [
+            p for p in paths
+            if p.lower().endswith(VALID_EXTENSIONS)
+        ]
+
+        if not valid_paths:
+            QMessageBox.warning(self, "Error", "No valid images selected")
+            return
+
+        ref = self.encoder.encode_images(valid_paths)
+
+        if ref is None or len(ref) == 0:
+            QMessageBox.warning(self, "Error", "No valid face found in images")
+            return
+
         ref = ref / np.linalg.norm(ref)
 
         self.face_finder = VideoFinder({"QuickPerson": ref})
@@ -153,6 +174,7 @@ class FaceWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(
             self, "Select Video", "", "Videos (*.mp4 *.avi *.mov)"
         )
+
         if not path:
             return
 

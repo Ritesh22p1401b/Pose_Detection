@@ -3,6 +3,11 @@ import numpy as np
 import os
 import onnxruntime as ort
 from insightface.app import FaceAnalysis
+from PIL import Image
+
+
+# ✅ Centralized extension support
+VALID_EXTENSIONS = (".jpg", ".jpeg", ".png")
 
 
 class FaceEncoder:
@@ -14,7 +19,25 @@ class FaceEncoder:
         self.app.prepare(ctx_id=self.ctx_id, det_size=(640, 640))
 
     # --------------------------------------------------
-    # QUICK VERIFY ENCODER (FIX)
+    # 🔥 SAFE IMAGE LOADER (MAIN FIX)
+    # --------------------------------------------------
+    def load_image_safe(self, path):
+        """
+        Loads image using OpenCV, fallback to PIL for JPEG issues
+        """
+        image = cv2.imread(path)
+
+        if image is None:
+            try:
+                image = np.array(Image.open(path).convert("RGB"))
+                image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+            except Exception:
+                return None
+
+        return image
+
+    # --------------------------------------------------
+    # QUICK VERIFY ENCODER (UPDATED)
     # --------------------------------------------------
     def encode_images(self, image_paths):
         """
@@ -25,7 +48,10 @@ class FaceEncoder:
         embeddings = []
 
         for path in image_paths:
-            image = cv2.imread(path)
+            if not path.lower().endswith(VALID_EXTENSIONS):
+                continue
+
+            image = self.load_image_safe(path)
             if image is None:
                 continue
 
@@ -41,7 +67,7 @@ class FaceEncoder:
         return np.mean(np.vstack(embeddings), axis=0)
 
     # --------------------------------------------------
-    # REFERENCE DIRECTORY ENCODER (UNCHANGED)
+    # REFERENCE DIRECTORY ENCODER (UPDATED)
     # --------------------------------------------------
     def encode_reference_directory(self, base_dir, selected_persons=None):
         person_db = {}
@@ -60,11 +86,13 @@ class FaceEncoder:
             embeddings = []
 
             for img in os.listdir(person_dir):
-                if not img.lower().endswith((".jpg", ".png")):
+                # ✅ NOW SUPPORTS JPEG
+                if not img.lower().endswith(VALID_EXTENSIONS):
                     continue
 
                 img_path = os.path.join(person_dir, img)
-                image = cv2.imread(img_path)
+
+                image = self.load_image_safe(img_path)
                 if image is None:
                     continue
 
