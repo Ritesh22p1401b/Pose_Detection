@@ -20,7 +20,7 @@ class AutoCamera:
             )
 
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        self.cap.set(cv2.CAP_PROP_FRAM E_HEIGHT, height)
 
         print("[AutoCamera] iVCam connected successfully")
 
