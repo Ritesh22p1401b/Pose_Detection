@@ -191,7 +191,7 @@ class FaceWindow(QMainWindow):
         self.camera = AutoCamera(index=1)
         self.cap = None
         self.timer.start(30)
-
+    
     def update_frame(self):
         if self.camera:
             frame = self.camera.read()
